@@ -1,80 +1,66 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    View,
-    Text,
-    ScrollView,
-    TouchableOpacity,
-    Alert,
-    StyleSheet,
-    Modal,
+    View, Text, ScrollView, TouchableOpacity, Alert,
+    StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 export default function JobDetail() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
-    const [selectedBid, setSelectedBid] = useState(null);
-    const [showBidModal, setShowBidModal] = useState(false);
+    const [job, setJob] = useState(null);
+    const [bids, setBids] = useState([]);
+    const [loading, setLoading] = useState(true);
 
-    // Sample job data
-    const job = {
-        id: id,
-        title: 'Reparation fuite eau sous evier',
-        category: 'Plomberie',
-        description: 'Grosse fuite sous l evier de la cuisine. Besoin d une intervention rapide.',
-        budget: '15,000 FCFA',
-        city: 'Douala',
-        neighborhood: 'Bonapriso',
-        status: 'open',
-        postedDate: '2026-07-01',
-        client: { name: 'Jean Dupont', rating: 4.5 },
+    const getToken = () => localStorage.getItem('auth_token');
+
+    useEffect(() => {
+        fetchJobDetail();
+    }, []);
+
+    const fetchJobDetail = async () => {
+        setLoading(true);
+        try {
+            const token = getToken();
+            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${id}`, {
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+            });
+            const data = await response.json();
+            if (data.success) {
+                setJob(data.data);
+                setBids(data.data.bids || []);
+            }
+        } catch (err) {
+            console.log('Error fetching job:', err);
+        }
+        setLoading(false);
     };
-
-    // Sample bids
-    const [bids, setBids] = useState([
-        {
-            id: '1',
-            bricoleur: { name: 'Jean K.', rating: 4.8, verified: true, city: 'Douala', jobsCompleted: 47 },
-            amount: '12,000 FCFA',
-            message: 'Je peux intervenir ce soir vers 18h. J ai tout le materiel necessaire pour reparer la fuite.',
-            estimatedDays: 1,
-            date: '2026-07-01 14:30',
-            status: 'pending',
-        },
-        {
-            id: '2',
-            bricoleur: { name: 'Paul M.', rating: 4.5, verified: true, city: 'Yaounde', jobsCompleted: 32 },
-            amount: '15,000 FCFA',
-            message: 'Disponible demain matin 8h. Je peux aussi verifier les autres tuyaux.',
-            estimatedDays: 1,
-            date: '2026-07-01 15:00',
-            status: 'pending',
-        },
-        {
-            id: '3',
-            bricoleur: { name: 'Pierre T.', rating: 4.2, verified: true, city: 'Douala', jobsCompleted: 18 },
-            amount: '10,000 FCFA',
-            message: 'Je suis a Bonapriso, je peux passer dans l heure.',
-            estimatedDays: 1,
-            date: '2026-07-01 15:45',
-            status: 'pending',
-        },
-    ]);
 
     const handleAcceptBid = (bidId) => {
         Alert.alert(
-            'Accepter l offre',
-            'Etes-vous sur de vouloir accepter cette offre ? Les autres offres seront automatiquement rejetees.',
+            'Accept Offer',
+            'Are you sure? All other offers will be automatically rejected.',
             [
-                { text: 'Annuler', style: 'cancel' },
+                { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Accepter',
-                    onPress: () => {
-                        setBids(bids.map(bid => ({
-                            ...bid,
-                            status: bid.id === bidId ? 'accepted' : 'rejected'
-                        })));
-                        Alert.alert('✅ Offre acceptee', 'Le bricoleur va etre notifie.');
+                    text: 'Accept',
+                    onPress: async () => {
+                        try {
+                            const token = getToken();
+                            const response = await fetch(`http://127.0.0.1:8000/api/v1/bids/${bidId}/accept`, {
+                                method: 'PUT',
+                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+                            });
+                            const data = await response.json();
+                            if (data.success) {
+                                Alert.alert('✅ Offer Accepted', 'The bricoleur has been notified. You can now chat.');
+                                fetchJobDetail();
+                            } else {
+                                Alert.alert('Error', data.message || 'Could not accept bid');
+                            }
+                        } catch (err) {
+                            Alert.alert('Error', 'Server connection error');
+                        }
                     }
                 },
             ]
@@ -83,17 +69,61 @@ export default function JobDetail() {
 
     const handleRejectBid = (bidId) => {
         Alert.alert(
-            'Rejeter l offre',
-            'Etes-vous sur de vouloir rejeter cette offre ?',
+            'Reject Offer',
+            'Are you sure you want to reject this offer?',
             [
-                { text: 'Annuler', style: 'cancel' },
+                { text: 'Cancel', style: 'cancel' },
                 {
-                    text: 'Rejeter',
+                    text: 'Reject',
                     style: 'destructive',
-                    onPress: () => {
-                        setBids(bids.map(bid =>
-                            bid.id === bidId ? { ...bid, status: 'rejected' } : bid
-                        ));
+                    onPress: async () => {
+                        try {
+                            const token = getToken();
+                            const response = await fetch(`http://127.0.0.1:8000/api/v1/bids/${bidId}/reject`, {
+                                method: 'PUT',
+                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+                            });
+                            const data = await response.json();
+                            if (data.success) {
+                                Alert.alert('❌ Offer Rejected');
+                                fetchJobDetail();
+                            } else {
+                                Alert.alert('Error', data.message || 'Could not reject bid');
+                            }
+                        } catch (err) {
+                            Alert.alert('Error', 'Server connection error');
+                        }
+                    }
+                },
+            ]
+        );
+    };
+
+    const handleCompleteJob = async () => {
+        Alert.alert(
+            'Mark as Complete',
+            'Has the work been finished?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Yes, Complete',
+                    onPress: async () => {
+                        try {
+                            const token = getToken();
+                            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${id}/complete`, {
+                                method: 'PUT',
+                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+                            });
+                            const data = await response.json();
+                            if (data.success) {
+                                Alert.alert('✅ Job Completed', 'The job has been marked as complete.');
+                                fetchJobDetail();
+                            } else {
+                                Alert.alert('Error', data.message || 'Could not complete job');
+                            }
+                        } catch (err) {
+                            Alert.alert('Error', 'Server connection error');
+                        }
                     }
                 },
             ]
@@ -102,118 +132,152 @@ export default function JobDetail() {
 
     const getStatusStyle = (status) => {
         switch (status) {
-            case 'accepted': return { bg: '#D1FAE5', text: '#065F46', label: 'Accepte' };
-            case 'rejected': return { bg: '#FEE2E2', text: '#991B1B', label: 'Rejete' };
-            default: return { bg: '#FEF3C7', text: '#92400E', label: 'En attente' };
+            case 'accepted': return { bg: '#D1FAE5', text: '#065F46', label: 'Accepted' };
+            case 'rejected': return { bg: '#FEE2E2', text: '#991B1B', label: 'Rejected' };
+            case 'pending': return { bg: '#FFFBEB', text: '#92400E', label: 'Pending' };
+            default: return { bg: '#F3F4F6', text: '#6B7280', label: status?.toUpperCase() || 'N/A' };
         }
     };
+
+    const getJobStatusStyle = (status) => {
+        switch (status) {
+            case 'open': return { bg: '#FDF3E0', text: '#B8860B', label: 'OPEN' };
+            case 'assigned': return { bg: '#DBEAFE', text: '#1E40AF', label: 'ASSIGNED' };
+            case 'in_progress': return { bg: '#DBEAFE', text: '#1E40AF', label: 'IN PROGRESS' };
+            case 'completed': return { bg: '#E6F4F2', text: '#0F766E', label: 'COMPLETED' };
+            default: return { bg: '#F3F4F6', text: '#6B7280', label: status?.toUpperCase() || 'N/A' };
+        }
+    };
+
+    if (loading) {
+        return (
+            <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#D9A441" />
+                <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading job details...</Text>
+            </View>
+        );
+    }
+
+    if (!job) {
+        return (
+            <View style={[s.container, { justifyContent: 'center', alignItems: 'center' }]}>
+                <Text style={{ fontSize: 18, color: '#6B7280' }}>Job not found</Text>
+                <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
+                    <Text style={{ color: '#D9A441', fontWeight: '600' }}>← Go Back</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
+
+    const jobSt = getJobStatusStyle(job.status);
 
     return (
         <View style={s.container}>
             {/* Header */}
             <View style={s.header}>
                 <TouchableOpacity onPress={() => router.back()}>
-                    <Text style={s.backBtn}>← Retour</Text>
+                    <Text style={s.backBtn}>← Back</Text>
                 </TouchableOpacity>
-                <Text style={s.headerTitle}>Details du job</Text>
-                <View style={{ width: 60 }} />
+                <Text style={s.headerTitle}>Job Details</Text>
+                <TouchableOpacity onPress={fetchJobDetail}>
+                    <Text style={s.refreshBtn}>🔄</Text>
+                </TouchableOpacity>
             </View>
 
             <ScrollView style={s.content} showsVerticalScrollIndicator={false}>
-                {/* Job Info */}
+                {/* Job Info Card */}
                 <View style={s.jobCard}>
                     <View style={s.jobHeader}>
                         <Text style={s.jobTitle}>{job.title}</Text>
-                        <View style={s.statusBadge}>
-                            <Text style={s.statusText}>Ouvert</Text>
+                        <View style={[s.jobStatusBadge, { backgroundColor: jobSt.bg }]}>
+                            <Text style={[s.jobStatusText, { color: jobSt.text }]}>{jobSt.label}</Text>
                         </View>
                     </View>
-                    <Text style={s.jobCategory}>🔧 {job.category}</Text>
-                    <Text style={s.jobBudget}>💰 {job.budget}</Text>
-                    <Text style={s.jobLocation}>📍 {job.city}, {job.neighborhood}</Text>
+                    <Text style={s.jobCategory}>📂 {job.category?.name || 'General'}</Text>
+                    <Text style={s.jobBudget}>💰 {job.budget_max ? job.budget_max.toLocaleString() : '0'} FCFA</Text>
+                    <Text style={s.jobLocation}>📍 {job.city}{job.neighborhood ? ', ' + job.neighborhood : ''}</Text>
                     <Text style={s.jobDesc}>{job.description}</Text>
                     <View style={s.jobFooter}>
-                        <Text style={s.jobDate}>📅 {job.postedDate}</Text>
-                        <Text style={s.jobClient}>👤 {job.client.name}</Text>
+                        <Text style={s.jobDate}>📅 {job.created_at ? new Date(job.created_at).toLocaleDateString() : 'N/A'}</Text>
+                        {job.client && <Text style={s.jobClient}>👤 {job.client.name}</Text>}
                     </View>
+
+                    {/* Chat Button */}
+                    {job.status === 'assigned' && (
+                        <TouchableOpacity 
+                            style={[s.chatBtn]} 
+                            onPress={() => router.push(`/chat/${job.id}`)}
+                        >
+                            <Text style={s.chatBtnText}>💬 Chat with Bricoleur</Text>
+                        </TouchableOpacity>
+                    )}
+
+                    {/* Complete Button */}
+                    {(job.status === 'assigned' || job.status === 'in_progress') && (
+                        <TouchableOpacity style={s.completeBtn} onPress={handleCompleteJob}>
+                            <Text style={s.completeBtnText}>✅ Mark as Complete</Text>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 {/* Bids Section */}
-                <Text style={s.sectionTitle}>📋 Offres recues ({bids.length})</Text>
+                <Text style={s.sectionTitle}>📋 Offers Received ({bids.length})</Text>
 
-                {bids.map(bid => {
-                    const statusStyle = getStatusStyle(bid.status);
-                    return (
-                        <View key={bid.id} style={[s.bidCard, bid.status === 'accepted' && s.bidAccepted]}>
-                            {/* Bricoleur Info */}
-                            <View style={s.bidHeader}>
-                                <View style={s.bricoleurInfo}>
-                                    <View style={s.avatar}>
-                                        <Text style={s.avatarText}>{bid.bricoleur.name.charAt(0)}</Text>
-                                    </View>
-                                    <View>
-                                        <View style={s.nameRow}>
-                                            <Text style={s.bricoleurName}>{bid.bricoleur.name}</Text>
-                                            {bid.bricoleur.verified && (
-                                                <Text style={s.verifiedBadge}>✅ Verifie</Text>
-                                            )}
-                                        </View>
-                                        <View style={s.ratingRow}>
-                                            <Text style={s.rating}>
-                                                {'⭐'.repeat(Math.floor(bid.bricoleur.rating))} {bid.bricoleur.rating}
-                                            </Text>
-                                            <Text style={s.jobsDone}>• {bid.bricoleur.jobsCompleted} travaux</Text>
-                                            <Text style={s.city}>• {bid.bricoleur.city}</Text>
-                                        </View>
-                                    </View>
-                                </View>
-                                <View style={[s.bidStatus, { backgroundColor: statusStyle.bg }]}>
-                                    <Text style={[s.bidStatusText, { color: statusStyle.text }]}>
-                                        {statusStyle.label}
-                                    </Text>
-                                </View>
-                            </View>
-
-                            {/* Bid Details */}
-                            <View style={s.bidDetails}>
-                                <View style={s.bidAmountRow}>
-                                    <Text style={s.bidAmountLabel}>Montant propose</Text>
-                                    <Text style={s.bidAmount}>{bid.amount}</Text>
-                                </View>
-                                <View style={s.bidInfoRow}>
-                                    <Text style={s.bidInfoLabel}>Delai estime</Text>
-                                    <Text style={s.bidInfoValue}>{bid.estimatedDays} jour(s)</Text>
-                                </View>
-                                <Text style={s.bidMessage}>"{bid.message}"</Text>
-                                <Text style={s.bidDate}>📅 {bid.date}</Text>
-                            </View>
-
-                            {/* Actions */}
-                            {bid.status === 'pending' && (
-                                <View style={s.actionRow}>
-                                    <TouchableOpacity
-                                        style={s.acceptBtn}
-                                        onPress={() => handleAcceptBid(bid.id)}
-                                    >
-                                        <Text style={s.acceptBtnText}>✅ Accepter</Text>
-                                    </TouchableOpacity>
-                                    <TouchableOpacity
-                                        style={s.rejectBtn}
-                                        onPress={() => handleRejectBid(bid.id)}
-                                    >
-                                        <Text style={s.rejectBtnText}>❌ Rejeter</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                        </View>
-                    );
-                })}
-
-                {bids.length === 0 && (
+                {bids.length === 0 ? (
                     <View style={s.emptyState}>
                         <Text style={s.emptyIcon}>📭</Text>
-                        <Text style={s.emptyText}>Aucune offre pour le moment</Text>
+                        <Text style={s.emptyText}>No offers yet</Text>
                     </View>
+                ) : (
+                    bids.map(bid => {
+                        const statusStyle = getStatusStyle(bid.status);
+                        const bricoleur = bid.bricoleur || {};
+                        return (
+                            <View key={bid.id} style={[s.bidCard, bid.status === 'accepted' && s.bidAccepted]}>
+                                <View style={s.bidHeader}>
+                                    <View style={s.bricoleurInfo}>
+                                        <View style={s.avatar}>
+                                            <Text style={s.avatarText}>{(bricoleur.name || '?').charAt(0)}</Text>
+                                        </View>
+                                        <View style={{ flex: 1 }}>
+                                            <View style={s.nameRow}>
+                                                <Text style={s.bricoleurName}>{bricoleur.name || 'Unknown'}</Text>
+                                            </View>
+                                            <Text style={s.bricoleurCity}>📍 {bricoleur.city || 'N/A'}</Text>
+                                        </View>
+                                    </View>
+                                    <View style={[s.bidStatus, { backgroundColor: statusStyle.bg }]}>
+                                        <Text style={[s.bidStatusText, { color: statusStyle.text }]}>{statusStyle.label}</Text>
+                                    </View>
+                                </View>
+
+                                <View style={s.bidDetails}>
+                                    <View style={s.bidAmountRow}>
+                                        <Text style={s.bidAmountLabel}>Proposed Amount</Text>
+                                        <Text style={s.bidAmount}>{bid.amount ? bid.amount.toLocaleString() : '0'} FCFA</Text>
+                                    </View>
+                                    <View style={s.bidInfoRow}>
+                                        <Text style={s.bidInfoLabel}>Estimated Time</Text>
+                                        <Text style={s.bidInfoValue}>{bid.estimated_days || 1} day(s)</Text>
+                                    </View>
+                                    {bid.message && <Text style={s.bidMessage}>"{bid.message}"</Text>}
+                                    <Text style={s.bidDate}>📅 {bid.created_at ? new Date(bid.created_at).toLocaleString() : 'N/A'}</Text>
+                                </View>
+
+                                {/* Accept/Reject Buttons */}
+                                {bid.status === 'pending' && job.status === 'open' && (
+                                    <View style={s.actionRow}>
+                                        <TouchableOpacity style={s.acceptBtn} onPress={() => handleAcceptBid(bid.id)}>
+                                            <Text style={s.acceptBtnText}>✅ Accept</Text>
+                                        </TouchableOpacity>
+                                        <TouchableOpacity style={s.rejectBtn} onPress={() => handleRejectBid(bid.id)}>
+                                            <Text style={s.rejectBtnText}>❌ Reject</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                )}
+                            </View>
+                        );
+                    })
                 )}
 
                 <View style={{ height: 40 }} />
@@ -223,81 +287,64 @@ export default function JobDetail() {
 }
 
 const s = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F3F4F6' },
+    container: { flex: 1, backgroundColor: '#F4F6F6' },
     header: {
         flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        backgroundColor: '#2563EB', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 16,
+        backgroundColor: '#0B3D3E', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 16,
     },
     backBtn: { color: 'white', fontSize: 16 },
     headerTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+    refreshBtn: { color: 'white', fontSize: 20 },
     content: { flex: 1, paddingHorizontal: 14 },
 
     // Job Card
-    jobCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginTop: 14 },
-    jobHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-    jobTitle: { fontSize: 18, fontWeight: '700', color: '#111827', flex: 1 },
-    statusBadge: { backgroundColor: '#DBEAFE', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8 },
-    statusText: { color: '#1E40AF', fontSize: 12, fontWeight: '600' },
-    jobCategory: { color: '#6B7280', fontSize: 14, marginBottom: 4 },
+    jobCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginTop: 14, borderWidth: 1, borderColor: '#E5E7EB' },
+    jobHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
+    jobTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', flex: 1, marginRight: 8 },
+    jobStatusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
+    jobStatusText: { fontSize: 11, fontWeight: '700' },
+    jobCategory: { color: '#6B7280', fontSize: 13, marginBottom: 4 },
     jobBudget: { color: '#059669', fontWeight: '600', fontSize: 16, marginBottom: 4 },
-    jobLocation: { color: '#6B7280', fontSize: 14, marginBottom: 8 },
+    jobLocation: { color: '#6B7280', fontSize: 13, marginBottom: 8 },
     jobDesc: { color: '#374151', fontSize: 14, lineHeight: 20, marginBottom: 10 },
     jobFooter: { flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#F3F4F6', paddingTop: 10 },
     jobDate: { color: '#9CA3AF', fontSize: 12 },
     jobClient: { color: '#6B7280', fontSize: 12 },
+    chatBtn: { backgroundColor: '#2563EB', paddingVertical: 10, alignItems: 'center', borderRadius: 8, marginTop: 10 },
+    chatBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
+    completeBtn: { backgroundColor: '#059669', paddingVertical: 10, alignItems: 'center', borderRadius: 8, marginTop: 6 },
+    completeBtnText: { color: 'white', fontWeight: '700', fontSize: 13 },
 
     // Section
-    sectionTitle: { fontSize: 17, fontWeight: '700', color: '#111827', marginTop: 20, marginBottom: 10 },
+    sectionTitle: { fontSize: 17, fontWeight: '700', color: '#1A1A1A', marginTop: 20, marginBottom: 10 },
 
     // Bid Cards
-    bidCard: {
-        backgroundColor: 'white', borderRadius: 14, padding: 16, marginBottom: 10,
-        borderWidth: 1, borderColor: '#E5E7EB',
-    },
+    bidCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginBottom: 10, borderWidth: 1, borderColor: '#E5E7EB' },
     bidAccepted: { borderColor: '#059669', borderWidth: 2, backgroundColor: '#F0FDF4' },
     bidHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
-    bricoleurInfo: { flexDirection: 'row', flex: 1 },
-    avatar: {
-        width: 44, height: 44, backgroundColor: '#2563EB', borderRadius: 12,
-        justifyContent: 'center', alignItems: 'center', marginRight: 10,
-    },
-    avatarText: { color: 'white', fontSize: 18, fontWeight: 'bold' },
+    bricoleurInfo: { flexDirection: 'row', flex: 1, alignItems: 'center' },
+    avatar: { width: 40, height: 40, backgroundColor: '#D9A441', borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
+    avatarText: { color: '#0B3D3E', fontSize: 16, fontWeight: 'bold' },
     nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-    bricoleurName: { fontSize: 15, fontWeight: '600', color: '#111827' },
-    verifiedBadge: { backgroundColor: '#D1FAE5', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontSize: 10, color: '#065F46' },
-    ratingRow: { flexDirection: 'row', alignItems: 'center', marginTop: 2 },
-    rating: { fontSize: 12, color: '#F59E0B' },
-    jobsDone: { fontSize: 11, color: '#9CA3AF', marginLeft: 4 },
-    city: { fontSize: 11, color: '#9CA3AF', marginLeft: 4 },
-    bidStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, height: 28 },
+    bricoleurName: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
+    bricoleurCity: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
+    bidStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
     bidStatusText: { fontSize: 11, fontWeight: '600' },
-
-    // Bid Details
     bidDetails: { backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, marginBottom: 10 },
     bidAmountRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
     bidAmountLabel: { color: '#6B7280', fontSize: 13 },
     bidAmount: { color: '#059669', fontWeight: '700', fontSize: 16 },
     bidInfoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
     bidInfoLabel: { color: '#6B7280', fontSize: 13 },
-    bidInfoValue: { color: '#111827', fontWeight: '500', fontSize: 13 },
+    bidInfoValue: { color: '#1A1A1A', fontWeight: '500', fontSize: 13 },
     bidMessage: { color: '#374151', fontSize: 13, fontStyle: 'italic', marginBottom: 6 },
     bidDate: { color: '#9CA3AF', fontSize: 11 },
-
-    // Actions
     actionRow: { flexDirection: 'row', gap: 8 },
-    acceptBtn: {
-        flex: 1, backgroundColor: '#059669', paddingVertical: 12,
-        borderRadius: 10, alignItems: 'center',
-    },
+    acceptBtn: { flex: 1, backgroundColor: '#059669', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
     acceptBtnText: { color: 'white', fontWeight: '600', fontSize: 14 },
-    rejectBtn: {
-        flex: 1, backgroundColor: '#FEE2E2', paddingVertical: 12,
-        borderRadius: 10, alignItems: 'center',
-    },
+    rejectBtn: { flex: 1, backgroundColor: '#FEE2E2', paddingVertical: 12, borderRadius: 8, alignItems: 'center' },
     rejectBtnText: { color: '#DC2626', fontWeight: '600', fontSize: 14 },
-
-    // Empty
     emptyState: { alignItems: 'center', paddingVertical: 40 },
-    emptyIcon: { fontSize: 50, marginBottom: 10 },
+    emptyIcon: { fontSize: 40, marginBottom: 10 },
     emptyText: { color: '#9CA3AF', fontSize: 15 },
 });

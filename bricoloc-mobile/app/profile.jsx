@@ -1,520 +1,335 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-    View,
-    Text,
-    ScrollView,
-    TouchableOpacity,
-    TextInput,
-    Alert,
-    Image,
-    StyleSheet,
-    Modal,
-    Platform,
+    View, Text, ScrollView, TouchableOpacity, TextInput,
+    Alert, Image, StyleSheet, Modal, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useAuth } from '../src/contexts/AuthContext';
-import * as ImagePicker from 'expo-image-picker';
 
 export default function Profile() {
     const router = useRouter();
-    const { user, logout } = useAuth();
-
-    // Profile state
-    const [profileImage, setProfileImage] = useState(null);
-    const [firstName, setFirstName] = useState(user?.name?.split(' ')[0] || 'Jean');
-    const [lastName, setLastName] = useState(user?.name?.split(' ')[1] || 'Dupont');
-    const [email, setEmail] = useState(user?.email || 'jean.dupont@email.com');
-    const [phone, setPhone] = useState(user?.phone || '699887766');
-    const [gender, setGender] = useState('Homme');
-    const [dateOfBirth, setDateOfBirth] = useState('1990-05-15');
-    const [city, setCity] = useState(user?.city || 'Douala');
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [showGenderPicker, setShowGenderPicker] = useState(false);
     const [showCityPicker, setShowCityPicker] = useState(false);
-    const [showDatePicker, setShowDatePicker] = useState(false);
 
-    // Account info (read-only)
-    const accountInfo = {
-        type: 'Standard',
-        role: 'Client',
-        country: 'Cameroun',
-        memberSince: 'Janvier 2026',
-        jobsPosted: 6,
-        jobsCompleted: 3,
-        rating: 4.8,
-    };
+    const [firstName, setFirstName] = useState('');
+    const [lastName, setLastName] = useState('');
+    const [email, setEmail] = useState('');
+    const [phone, setPhone] = useState('');
+    const [gender, setGender] = useState('Male');
+    const [dateOfBirth, setDateOfBirth] = useState('');
+    const [city, setCity] = useState('Douala');
 
-    const cities = [
-        'Douala', 'Yaounde', 'Bafoussam', 'Bamenda',
-        'Garoua', 'Maroua', 'Limbe', 'Kribi', 'Buéa', 'Ebolowa',
-    ];
+    const cities = ['Douala', 'Yaounde', 'Bafoussam', 'Bamenda', 'Garoua', 'Maroua', 'Limbe', 'Kribi', 'Buea', 'Ebolowa'];
+    const genders = ['Male', 'Female', 'Other'];
 
-    const genders = ['Homme', 'Femme', 'Autre'];
+    const getToken = () => localStorage.getItem('auth_token');
 
-    // Pick profile image
-    const pickImage = async () => {
-        const result = await ImagePicker.launchImageLibraryAsync({
-            mediaTypes: ImagePicker.MediaTypeOptions.Images,
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.8,
-        });
+    // Load user profile from API
+    useEffect(() => {
+        loadProfile();
+    }, []);
 
-        if (!result.canceled) {
-            setProfileImage(result.assets[0].uri);
+    const loadProfile = async () => {
+        setLoading(true);
+        try {
+            const token = getToken();
+            const response = await fetch('http://127.0.0.1:8000/api/v1/user', {
+                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
+            });
+            const data = await response.json();
+            if (data.success || data.user) {
+                const user = data.user || data;
+                setFirstName(user.first_name || '');
+                setLastName(user.last_name || '');
+                setEmail(user.email || '');
+                setPhone((user.phone_number || '').replace('+237', ''));
+                setGender(user.gender || 'Male');
+                setDateOfBirth(user.date_of_birth || '');
+                setCity(user.city || 'Douala');
+            }
+        } catch (err) {
+            console.log('Error loading profile:', err);
         }
+        setLoading(false);
     };
 
-    // Take photo
-    const takePhoto = async () => {
-        const result = await ImagePicker.launchCameraAsync({
-            allowsEditing: true,
-            aspect: [1, 1],
-            quality: 0.8,
-        });
-
-        if (!result.canceled) {
-            setProfileImage(result.assets[0].uri);
-        }
-    };
-
-    // Save profile
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!firstName || !lastName || !email || !phone) {
-            Alert.alert('Erreur', 'Veuillez remplir tous les champs obligatoires');
+            Alert.alert('Error', 'Please fill in all required fields');
             return;
         }
-        setIsEditing(false);
-        Alert.alert('✅ Profil mis a jour', 'Vos informations ont ete enregistrees avec succes.');
+
+        setSaving(true);
+        try {
+            const token = getToken();
+            const response = await fetch('http://127.0.0.1:8000/api/v1/user/profile', {
+                method: 'PUT',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    first_name: firstName,
+                    last_name: lastName,
+                    email: email,
+                    phone_number: '+237' + phone,
+                    gender: gender,
+                    date_of_birth: dateOfBirth,
+                    city: city,
+                }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                // Update localStorage
+                localStorage.setItem('user_data', JSON.stringify(data.user));
+                setIsEditing(false);
+                Alert.alert('✅ Profile Updated', 'Your information has been saved to the database.');
+            } else {
+                Alert.alert('Error', data.message || 'Could not update profile');
+            }
+        } catch (err) {
+            Alert.alert('Error', 'Server connection error');
+        }
+        setSaving(false);
     };
 
-    // Logout
     const handleLogout = () => {
-        Alert.alert(
-            'Deconnexion',
-            'Etes-vous sur de vouloir vous deconnecter ?',
-            [
-                { text: 'Annuler', style: 'cancel' },
-                { text: 'Deconnexion', style: 'destructive', onPress: async () => { await logout(); router.replace('/login'); } },
-            ]
-        );
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('user_data');
+        router.replace('/login');
     };
+
+    if (loading) {
+        return (
+            <View style={[s.root, { justifyContent: 'center', alignItems: 'center' }]}>
+                <ActivityIndicator size="large" color="#D9A441" />
+                <Text style={{ marginTop: 12, color: '#6B7280' }}>Loading profile...</Text>
+            </View>
+        );
+    }
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.header}>
-                <TouchableOpacity onPress={() => router.back()}>
-                    <Text style={styles.backBtn}>← Retour</Text>
+        <View style={s.root}>
+
+            {/* ========== SIDEBAR ========== */}
+            <View style={s.sidebar}>
+                <View style={s.sidebarLogo}>
+                    <View style={s.logoIcon}><Text style={s.logoIconText}>BL</Text></View>
+                    <Text style={s.logoText}>BricoLoc</Text>
+                </View>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/home')}>
+                    <Text style={s.navIcon}>🏠</Text><Text style={s.navLabel}>Home</Text>
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Mon Profil</Text>
-                <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
-                    <Text style={styles.editBtn}>{isEditing ? 'Annuler' : 'Modifier'}</Text>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/dashboard')}>
+                    <Text style={s.navIcon}>📊</Text><Text style={s.navLabel}>Dashboard</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/post-job')}>
+                    <Text style={s.navIcon}>📝</Text><Text style={s.navLabel}>Post a Job</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.navItem}>
+                    <Text style={s.navIcon}>💬</Text><Text style={s.navLabel}>Messages</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[s.navItem, s.navActive]}>
+                    <Text style={s.navIcon}>👤</Text><Text style={[s.navLabel, s.navLabelActive]}>Profile</Text>
                 </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                {/* ============ PROFILE PICTURE SECTION ============ */}
-                <View style={styles.profileImageSection}>
-                    <TouchableOpacity onPress={pickImage} style={styles.imageContainer}>
-                        {profileImage ? (
-                            <Image source={{ uri: profileImage }} style={styles.profileImage} />
-                        ) : (
-                            <View style={styles.profilePlaceholder}>
-                                <Text style={styles.profileInitials}>
-                                    {firstName?.charAt(0) || 'U'}{lastName?.charAt(0) || ''}
-                                </Text>
+            {/* ========== MAIN ========== */}
+            <View style={s.main}>
+                <View style={s.topbar}>
+                    <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+                        <Text style={s.backBtnText}>← Back</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+                        <Text style={s.editBtn}>{isEditing ? 'Cancel' : 'Edit'}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <ScrollView showsVerticalScrollIndicator={false}>
+                    <Text style={s.pageTitle}>My Profile</Text>
+                    <Text style={s.pageSub}>Manage your personal information.</Text>
+
+                    {/* Profile Picture Placeholder */}
+                    <View style={s.imageSection}>
+                        <View style={s.profilePlaceholder}>
+                            <Text style={s.profileInitials}>{firstName?.charAt(0) || 'U'}{lastName?.charAt(0) || ''}</Text>
+                        </View>
+                        <Text style={s.imageLabel}>{firstName} {lastName}</Text>
+                        <Text style={s.imageRole}>Client · {city}</Text>
+                    </View>
+
+                    {/* Personal Information */}
+                    <View style={s.formCard}>
+                        <Text style={s.sectionLabel}>PERSONAL INFORMATION</Text>
+
+                        <View style={s.row}>
+                            <View style={s.half}>
+                                <Text style={s.label}>First Name *</Text>
+                                <TextInput style={[s.input, !isEditing && s.inputDisabled]} value={firstName} onChangeText={setFirstName} editable={isEditing} />
                             </View>
+                            <View style={s.half}>
+                                <Text style={s.label}>Last Name *</Text>
+                                <TextInput style={[s.input, !isEditing && s.inputDisabled]} value={lastName} onChangeText={setLastName} editable={isEditing} />
+                            </View>
+                        </View>
+
+                        <Text style={s.label}>Email *</Text>
+                        <TextInput style={[s.input, !isEditing && s.inputDisabled]} value={email} onChangeText={setEmail} editable={isEditing} keyboardType="email-address" autoCapitalize="none" />
+
+                        <Text style={s.label}>Phone *</Text>
+                        <View style={s.inputRow}>
+                            <Text style={s.prefix}>+237</Text>
+                            <View style={s.vDivider} />
+                            <TextInput style={[s.inputFull, !isEditing && s.inputDisabled]} value={phone} onChangeText={setPhone} editable={isEditing} keyboardType="phone-pad" maxLength={9} />
+                        </View>
+
+                        <Text style={s.label}>Gender</Text>
+                        <TouchableOpacity style={s.selectBtn} onPress={() => isEditing && setShowGenderPicker(true)} disabled={!isEditing}>
+                            <Text style={s.selectText}>{gender}</Text><Text style={s.selectArrow}>▼</Text>
+                        </TouchableOpacity>
+
+                        <Text style={s.label}>Date of Birth</Text>
+                        <TextInput style={[s.input, !isEditing && s.inputDisabled]} value={dateOfBirth} onChangeText={setDateOfBirth} editable={isEditing} placeholder="YYYY-MM-DD" />
+
+                        <Text style={s.label}>City</Text>
+                        <TouchableOpacity style={s.selectBtn} onPress={() => isEditing && setShowCityPicker(true)} disabled={!isEditing}>
+                            <Text style={s.selectText}>📍 {city}</Text><Text style={s.selectArrow}>▼</Text>
+                        </TouchableOpacity>
+
+                        {isEditing && (
+                            <TouchableOpacity style={s.saveBtn} onPress={handleSave} disabled={saving}>
+                                {saving ? <ActivityIndicator color="#0B3D3E" /> : <Text style={s.saveBtnText}>💾 Save Changes to Database</Text>}
+                            </TouchableOpacity>
                         )}
-                        <View style={styles.cameraBadge}>
-                            <Text style={styles.cameraIcon}>📷</Text>
-                        </View>
-                    </TouchableOpacity>
-                    
-                    <View style={styles.photoButtons}>
-                        <TouchableOpacity style={styles.photoBtn} onPress={pickImage}>
-                            <Text style={styles.photoBtnText}>🖼️ Galerie</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={styles.photoBtn} onPress={takePhoto}>
-                            <Text style={styles.photoBtnText}>📸 Photo</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-
-                {/* ============ PERSONAL INFORMATION ============ */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionIcon}>👤</Text>
-                        <Text style={styles.sectionTitle}>Informations personnelles</Text>
                     </View>
 
-                    {/* First Name & Last Name */}
-                    <View style={styles.row}>
-                        <View style={styles.half}>
-                            <Text style={styles.label}>Prenom *</Text>
-                            <TextInput
-                                style={[styles.input, !isEditing && styles.inputDisabled]}
-                                value={firstName}
-                                onChangeText={setFirstName}
-                                editable={isEditing}
-                                placeholder="Votre prenom"
-                            />
-                        </View>
-                        <View style={styles.half}>
-                            <Text style={styles.label}>Nom *</Text>
-                            <TextInput
-                                style={[styles.input, !isEditing && styles.inputDisabled]}
-                                value={lastName}
-                                onChangeText={setLastName}
-                                editable={isEditing}
-                                placeholder="Votre nom"
-                            />
-                        </View>
+                    {/* Account Info */}
+                    <View style={s.formCard}>
+                        <Text style={s.sectionLabel}>ACCOUNT INFORMATION</Text>
+                        <View style={s.infoRow}><Text style={s.infoLabel}>Account Type</Text><Text style={s.infoValue}>Standard</Text></View>
+                        <View style={s.divider} />
+                        <View style={s.infoRow}><Text style={s.infoLabel}>Role</Text><Text style={s.infoValue}>👤 Client</Text></View>
+                        <View style={s.divider} />
+                        <View style={s.infoRow}><Text style={s.infoLabel}>Country</Text><Text style={s.infoValue}>🇨🇲 Cameroon</Text></View>
                     </View>
 
-                    {/* Email */}
-                    <Text style={styles.label}>Email *</Text>
-                    <View style={styles.inputRow}>
-                        <Text style={styles.inputIcon}>📧</Text>
-                        <TextInput
-                            style={[styles.inputFull, !isEditing && styles.inputDisabled]}
-                            value={email}
-                            onChangeText={setEmail}
-                            editable={isEditing}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                        />
-                    </View>
-
-                    {/* Phone */}
-                    <Text style={styles.label}>Telephone *</Text>
-                    <View style={styles.inputRow}>
-                        <Text style={styles.prefix}>+237</Text>
-                        <View style={styles.vDivider} />
-                        <TextInput
-                            style={[styles.inputFull, !isEditing && styles.inputDisabled]}
-                            value={phone}
-                            onChangeText={setPhone}
-                            editable={isEditing}
-                            keyboardType="phone-pad"
-                            maxLength={9}
-                        />
-                    </View>
-
-                    {/* Gender */}
-                    <Text style={styles.label}>Genre</Text>
-                    <TouchableOpacity
-                        style={styles.selectBtn}
-                        onPress={() => isEditing && setShowGenderPicker(true)}
-                        disabled={!isEditing}
-                    >
-                        <Text style={styles.selectText}>{gender}</Text>
-                        <Text style={styles.selectArrow}>▼</Text>
+                    {/* Go to Dashboard */}
+                    <TouchableOpacity style={s.dashboardBtn} onPress={() => router.push('/dashboard')}>
+                        <Text style={s.dashboardBtnText}>📊 Go to Dashboard</Text>
                     </TouchableOpacity>
 
-                    {/* Date of Birth */}
-                    <Text style={styles.label}>Date de naissance</Text>
-                    <TouchableOpacity
-                        style={styles.selectBtn}
-                        onPress={() => isEditing && setShowDatePicker(true)}
-                        disabled={!isEditing}
-                    >
-                        <Text style={styles.selectText}>📅 {dateOfBirth}</Text>
-                        {isEditing && <Text style={styles.selectArrow}>▼</Text>}
+                    {/* Logout */}
+                    <TouchableOpacity style={s.logoutBtn} onPress={handleLogout}>
+                        <Text style={s.logoutText}>🚪 Sign Out</Text>
                     </TouchableOpacity>
 
-                    {/* City */}
-                    <Text style={styles.label}>Ville</Text>
-                    <TouchableOpacity
-                        style={styles.selectBtn}
-                        onPress={() => isEditing && setShowCityPicker(true)}
-                        disabled={!isEditing}
-                    >
-                        <Text style={styles.selectText}>📍 {city}</Text>
-                        {isEditing && <Text style={styles.selectArrow}>▼</Text>}
-                    </TouchableOpacity>
+                    <View style={{ height: 40 }} />
+                </ScrollView>
+            </View>
 
-                    {/* Save Button */}
-                    {isEditing && (
-                        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-                            <Text style={styles.saveBtnText}>💾 Enregistrer les modifications</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-
-                {/* ============ ACCOUNT INFORMATION ============ */}
-                <View style={styles.section}>
-                    <View style={styles.sectionHeader}>
-                        <Text style={styles.sectionIcon}>🔐</Text>
-                        <Text style={styles.sectionTitle}>Informations du compte</Text>
-                    </View>
-
-                    <View style={styles.infoCard}>
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Type de compte</Text>
-                            <View style={styles.infoValueBadge}>
-                                <Text style={styles.infoValueText}>{accountInfo.type}</Text>
-                            </View>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Role actif</Text>
-                            <View style={[styles.infoValueBadge, styles.roleBadge]}>
-                                <Text style={[styles.infoValueText, styles.roleText]}>
-                                    👤 {accountInfo.role}
-                                </Text>
-                            </View>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Pays</Text>
-                            <Text style={styles.infoValue}>🇨🇲 {accountInfo.country}</Text>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Membre depuis</Text>
-                            <Text style={styles.infoValue}>{accountInfo.memberSince}</Text>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Annonces publiees</Text>
-                            <Text style={styles.infoValue}>{accountInfo.jobsPosted}</Text>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Travaux termines</Text>
-                            <Text style={styles.infoValue}>{accountInfo.jobsCompleted}</Text>
-                        </View>
-                        <View style={styles.divider} />
-
-                        <View style={styles.infoRow}>
-                            <Text style={styles.infoLabel}>Note moyenne</Text>
-                            <Text style={styles.infoValue}>
-                                {'⭐'.repeat(Math.floor(accountInfo.rating))} {accountInfo.rating}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
-
-                {/* Logout */}
-                <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-                    <Text style={styles.logoutText}>🚪 Se deconnecter</Text>
-                </TouchableOpacity>
-
-                <View style={{ height: 60 }} />
-            </ScrollView>
-
-            {/* ============ GENDER PICKER MODAL ============ */}
+            {/* Gender Modal */}
             <Modal visible={showGenderPicker} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Selectionner le genre</Text>
-                        {genders.map(g => (
-                            <TouchableOpacity
-                                key={g}
-                                style={[styles.modalOption, gender === g && styles.modalOptionActive]}
-                                onPress={() => { setGender(g); setShowGenderPicker(false); }}
-                            >
-                                <Text style={[styles.modalOptionText, gender === g && styles.modalOptionTextActive]}>
-                                    {g}
-                                </Text>
-                                {gender === g && <Text style={styles.checkmark}>✓</Text>}
+                <View style={s.modalOverlay}><View style={s.modalContent}>
+                    <Text style={s.modalTitle}>Select Gender</Text>
+                    {genders.map(g => (
+                        <TouchableOpacity key={g} style={[s.modalOption, gender === g && s.modalOptionActive]} onPress={() => { setGender(g); setShowGenderPicker(false); }}>
+                            <Text style={[s.modalOptionText, gender === g && s.modalOptionTextActive]}>{g}</Text>
+                        </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity style={s.modalCancel} onPress={() => setShowGenderPicker(false)}><Text style={s.modalCancelText}>Cancel</Text></TouchableOpacity>
+                </View></View>
+            </Modal>
+
+            {/* City Modal */}
+            <Modal visible={showCityPicker} transparent animationType="slide">
+                <View style={s.modalOverlay}><View style={s.modalContent}>
+                    <Text style={s.modalTitle}>Select City</Text>
+                    <ScrollView style={{ maxHeight: 300 }}>
+                        {cities.map(c => (
+                            <TouchableOpacity key={c} style={[s.modalOption, city === c && s.modalOptionActive]} onPress={() => { setCity(c); setShowCityPicker(false); }}>
+                                <Text style={[s.modalOptionText, city === c && s.modalOptionTextActive]}>📍 {c}</Text>
                             </TouchableOpacity>
                         ))}
-                        <TouchableOpacity
-                            style={styles.modalCancel}
-                            onPress={() => setShowGenderPicker(false)}
-                        >
-                            <Text style={styles.modalCancelText}>Annuler</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* ============ CITY PICKER MODAL ============ */}
-            <Modal visible={showCityPicker} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Selectionner la ville</Text>
-                        <ScrollView style={styles.modalScroll}>
-                            {cities.map(c => (
-                                <TouchableOpacity
-                                    key={c}
-                                    style={[styles.modalOption, city === c && styles.modalOptionActive]}
-                                    onPress={() => { setCity(c); setShowCityPicker(false); }}
-                                >
-                                    <Text style={[styles.modalOptionText, city === c && styles.modalOptionTextActive]}>
-                                        📍 {c}
-                                    </Text>
-                                    {city === c && <Text style={styles.checkmark}>✓</Text>}
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-                        <TouchableOpacity
-                            style={styles.modalCancel}
-                            onPress={() => setShowCityPicker(false)}
-                        >
-                            <Text style={styles.modalCancelText}>Annuler</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* ============ DATE PICKER MODAL (Simplified) ============ */}
-            <Modal visible={showDatePicker} transparent animationType="slide">
-                <View style={styles.modalOverlay}>
-                    <View style={styles.modalContent}>
-                        <Text style={styles.modalTitle}>Date de naissance</Text>
-                        <TextInput
-                            style={styles.dateInput}
-                            value={dateOfBirth}
-                            onChangeText={setDateOfBirth}
-                            placeholder="AAAA-MM-JJ"
-                            keyboardType="numbers-and-punctuation"
-                        />
-                        <Text style={styles.dateHint}>Format: AAAA-MM-JJ (ex: 1990-05-15)</Text>
-                        <TouchableOpacity
-                            style={styles.modalConfirm}
-                            onPress={() => setShowDatePicker(false)}
-                        >
-                            <Text style={styles.modalConfirmText}>Confirmer</Text>
-                        </TouchableOpacity>
-                    </View>
-                </View>
+                    </ScrollView>
+                    <TouchableOpacity style={s.modalCancel} onPress={() => setShowCityPicker(false)}><Text style={s.modalCancelText}>Cancel</Text></TouchableOpacity>
+                </View></View>
             </Modal>
         </View>
     );
 }
 
-const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F3F4F6' },
+const s = StyleSheet.create({
+    root: { flex: 1, flexDirection: 'row', backgroundColor: '#F4F6F6' },
 
-    // Header
-    header: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        backgroundColor: '#2563EB', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 16,
-    },
-    backBtn: { color: 'white', fontSize: 16 },
-    headerTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-    editBtn: { color: 'white', fontSize: 15, fontWeight: '600' },
+    // Sidebar
+    sidebar: { width: 220, backgroundColor: '#072E2F', paddingVertical: 24, paddingHorizontal: 14 },
+    sidebarLogo: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 28, paddingHorizontal: 4 },
+    logoIcon: { width: 32, height: 32, backgroundColor: '#D9A441', borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+    logoIconText: { fontSize: 15, fontWeight: '700', color: '#0B3D3E' },
+    logoText: { fontSize: 17, fontWeight: '700', color: 'white' },
+    navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 10, borderRadius: 8, marginBottom: 2, gap: 10 },
+    navActive: { backgroundColor: 'rgba(217,164,65,0.15)' },
+    navIcon: { fontSize: 15, width: 20, textAlign: 'center' },
+    navLabel: { color: 'rgba(255,255,255,0.6)', fontSize: 13, flex: 1 },
+    navLabelActive: { color: '#D9A441', fontWeight: '500' },
 
-    content: { flex: 1 },
+    // Main
+    main: { flex: 1, paddingHorizontal: 28, paddingTop: 20 },
+    topbar: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+    backBtn: { paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, backgroundColor: 'white', borderWidth: 1, borderColor: '#E5E7EB' },
+    backBtnText: { color: '#6B7280', fontSize: 13, fontWeight: '500' },
+    editBtn: { color: '#D9A441', fontSize: 14, fontWeight: '600' },
+    pageTitle: { fontSize: 24, fontWeight: '700', color: '#1A1A1A', marginTop: 8 },
+    pageSub: { fontSize: 13, color: '#6B7280', marginTop: 4, marginBottom: 20 },
 
     // Profile Image
-    profileImageSection: { alignItems: 'center', paddingVertical: 24, backgroundColor: 'white', marginBottom: 10 },
-    imageContainer: { position: 'relative', marginBottom: 14 },
-    profileImage: { width: 100, height: 100, borderRadius: 50, borderWidth: 3, borderColor: '#2563EB' },
-    profilePlaceholder: {
-        width: 100, height: 100, borderRadius: 50, backgroundColor: '#2563EB',
-        justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#2563EB',
-    },
-    profileInitials: { color: 'white', fontSize: 36, fontWeight: 'bold' },
-    cameraBadge: {
-        position: 'absolute', bottom: 0, right: 0,
-        backgroundColor: '#059669', width: 32, height: 32,
-        borderRadius: 16, justifyContent: 'center', alignItems: 'center',
-        borderWidth: 2, borderColor: 'white',
-    },
-    cameraIcon: { fontSize: 14 },
-    photoButtons: { flexDirection: 'row', gap: 10 },
-    photoBtn: {
-        backgroundColor: '#EFF6FF', paddingHorizontal: 16, paddingVertical: 8,
-        borderRadius: 8, borderWidth: 1, borderColor: '#BFDBFE',
-    },
-    photoBtnText: { color: '#2563EB', fontWeight: '500', fontSize: 13 },
+    imageSection: { alignItems: 'center', paddingVertical: 20, backgroundColor: 'white', borderRadius: 14, marginBottom: 14, borderWidth: 1, borderColor: '#E5E7EB' },
+    profilePlaceholder: { width: 80, height: 80, borderRadius: 40, backgroundColor: '#0B3D3E', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+    profileInitials: { color: 'white', fontSize: 28, fontWeight: 'bold' },
+    imageLabel: { fontSize: 16, fontWeight: '600', color: '#1A1A1A' },
+    imageRole: { fontSize: 12, color: '#6B7280', marginTop: 2 },
 
-    // Sections
-    section: { backgroundColor: 'white', marginBottom: 10, paddingHorizontal: 16, paddingVertical: 18 },
-    sectionHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-    sectionIcon: { fontSize: 20, marginRight: 10 },
-    sectionTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
-
-    // Labels & Inputs
-    label: { fontSize: 14, fontWeight: '600', color: '#374151', marginTop: 14, marginBottom: 6 },
+    // Form Card
+    formCard: { backgroundColor: 'white', borderRadius: 14, padding: 20, marginBottom: 14, borderWidth: 1, borderColor: '#E5E7EB' },
+    sectionLabel: { fontSize: 10, fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 },
+    label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 5, marginTop: 12 },
     row: { flexDirection: 'row', gap: 10 },
     half: { flex: 1 },
-    input: {
-        borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: 10, fontSize: 15,
-        backgroundColor: '#F9FAFB', color: '#111827',
-    },
+    input: { backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#111827' },
     inputDisabled: { backgroundColor: '#F3F4F6', color: '#6B7280' },
-    inputRow: {
-        flexDirection: 'row', alignItems: 'center',
-        borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#F9FAFB',
-    },
-    inputIcon: { fontSize: 15, marginRight: 8 },
-    inputFull: { flex: 1, fontSize: 15, color: '#111827' },
-    prefix: { fontSize: 14, fontWeight: '600', color: '#111827' },
-    vDivider: { width: 1, height: 18, backgroundColor: '#D1D5DB', marginHorizontal: 8 },
-
-    // Select buttons
-    selectBtn: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10,
-        paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F9FAFB',
-    },
-    selectText: { fontSize: 15, color: '#111827' },
-    selectArrow: { fontSize: 12, color: '#9CA3AF' },
-
-    // Save
-    saveBtn: { backgroundColor: '#2563EB', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
-    saveBtnText: { color: 'white', fontWeight: '600', fontSize: 16 },
+    inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10 },
+    inputFull: { flex: 1, fontSize: 14, color: '#111827' },
+    prefix: { fontSize: 13, fontWeight: '600', color: '#111827' },
+    vDivider: { width: 1, height: 16, backgroundColor: '#D1D5DB', marginHorizontal: 8 },
+    selectBtn: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 11 },
+    selectText: { fontSize: 14, color: '#111827' },
+    selectArrow: { fontSize: 10, color: '#9CA3AF' },
+    saveBtn: { backgroundColor: '#D9A441', borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 18 },
+    saveBtnText: { color: '#0B3D3E', fontWeight: '600', fontSize: 14 },
 
     // Account Info
-    infoCard: { backgroundColor: '#F9FAFB', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: '#E5E7EB' },
-    infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
-    infoLabel: { color: '#6B7280', fontSize: 14 },
-    infoValue: { color: '#111827', fontWeight: '500', fontSize: 14 },
-    infoValueBadge: { backgroundColor: '#EFF6FF', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 8 },
-    infoValueText: { color: '#2563EB', fontWeight: '600', fontSize: 13 },
-    roleBadge: { backgroundColor: '#F0FDF4' },
-    roleText: { color: '#059669' },
+    infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 },
+    infoLabel: { color: '#6B7280', fontSize: 13 },
+    infoValue: { color: '#111827', fontWeight: '500', fontSize: 13 },
     divider: { height: 1, backgroundColor: '#E5E7EB' },
 
-    // Logout
-    logoutBtn: {
-        backgroundColor: 'white', marginHorizontal: 16, marginTop: 16,
-        borderRadius: 14, paddingVertical: 16, alignItems: 'center',
-        borderWidth: 1, borderColor: '#FECACA',
-    },
-    logoutText: { color: '#EF4444', fontWeight: '600', fontSize: 16 },
+    // Buttons
+    dashboardBtn: { backgroundColor: '#0B3D3E', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginBottom: 10 },
+    dashboardBtnText: { color: 'white', fontWeight: '600', fontSize: 14 },
+    logoutBtn: { backgroundColor: 'white', borderRadius: 12, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#FECACA' },
+    logoutText: { color: '#EF4444', fontWeight: '600', fontSize: 14 },
 
     // Modals
-    modalOverlay: {
-        flex: 1, justifyContent: 'flex-end',
-        backgroundColor: 'rgba(0,0,0,0.5)',
-    },
-    modalContent: {
-        backgroundColor: 'white',
-        borderTopLeftRadius: 24,
-        borderTopRightRadius: 24,
-        padding: 20,
-        maxHeight: '60%',
-    },
-    modalTitle: { fontSize: 18, fontWeight: '700', color: '#111827', textAlign: 'center', marginBottom: 16 },
-    modalOption: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        paddingVertical: 14, paddingHorizontal: 16, borderRadius: 10, marginBottom: 4,
-    },
-    modalOptionActive: { backgroundColor: '#EFF6FF' },
-    modalOptionText: { fontSize: 16, color: '#374151' },
-    modalOptionTextActive: { color: '#2563EB', fontWeight: '600' },
-    checkmark: { color: '#2563EB', fontSize: 18, fontWeight: 'bold' },
-    modalCancel: { paddingVertical: 14, alignItems: 'center', marginTop: 8 },
-    modalCancelText: { color: '#EF4444', fontWeight: '600', fontSize: 15 },
-    modalScroll: { maxHeight: 300 },
-    dateInput: {
-        borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10,
-        paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, textAlign: 'center',
-    },
-    dateHint: { textAlign: 'center', color: '#9CA3AF', fontSize: 12, marginTop: 8, marginBottom: 12 },
-    modalConfirm: { backgroundColor: '#2563EB', borderRadius: 10, paddingVertical: 12, alignItems: 'center' },
-    modalConfirmText: { color: 'white', fontWeight: '600', fontSize: 15 },
+    modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
+    modalContent: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20 },
+    modalTitle: { fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 14 },
+    modalOption: { paddingVertical: 12, paddingHorizontal: 14, borderRadius: 8 },
+    modalOptionActive: { backgroundColor: '#FDF3E0' },
+    modalOptionText: { fontSize: 15, color: '#374151' },
+    modalOptionTextActive: { color: '#B8860B', fontWeight: '600' },
+    modalCancel: { paddingVertical: 12, alignItems: 'center', marginTop: 6 },
+    modalCancelText: { color: '#EF4444', fontWeight: '600', fontSize: 14 },
 });

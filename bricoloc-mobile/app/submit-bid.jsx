@@ -1,13 +1,7 @@
 import React, { useState } from 'react';
 import {
-    View,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    Alert,
-    ActivityIndicator,
-    StyleSheet,
-    ScrollView,
+    View, Text, TextInput, TouchableOpacity, Alert,
+    ActivityIndicator, StyleSheet, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
@@ -19,170 +13,213 @@ export default function SubmitBid() {
     const [estimatedDays, setEstimatedDays] = useState('1');
     const [loading, setLoading] = useState(false);
 
-    const handleSubmit = () => {
+    const handleSubmit = async () => {
         if (!amount || parseInt(amount) < 1000) {
-            Alert.alert('Erreur', 'Veuillez entrer un montant valide (minimum 1,000 FCFA)');
+            Alert.alert('Error', 'Please enter a valid amount (minimum 1,000 FCFA)');
             return;
         }
         if (!message || message.length < 10) {
-            Alert.alert('Erreur', 'Veuillez ecrire un message d au moins 10 caracteres');
+            Alert.alert('Error', 'Please write a message of at least 10 characters');
             return;
         }
 
         setLoading(true);
-        setTimeout(() => {
+        try {
+            const token = localStorage.getItem('auth_token');
+            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${jobId}/bids`, {
+                method: 'POST',
+                headers: {
+                    'Authorization': 'Bearer ' + token,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify({
+                    amount: parseInt(amount),
+                    message: message,
+                    estimated_days: parseInt(estimatedDays),
+                }),
+            });
+            const data = await response.json();
             setLoading(false);
-            Alert.alert(
-                '✅ Offre soumise !',
-                `Votre offre de ${parseInt(amount).toLocaleString()} FCFA a ete envoyee au client.`,
-                [{ text: 'OK', onPress: () => router.back() }]
-            );
-        }, 1500);
+
+            if (data.success) {
+                Alert.alert(
+                    '✅ Offer Submitted Successfully!',
+                    `Your offer of ${parseInt(amount).toLocaleString()} FCFA has been sent to the client.\n\nThe client has been notified and will review your offer.`,
+                    [{ text: 'OK', onPress: () => router.back() }]
+                );
+            } else {
+                Alert.alert('Error', data.message || 'Could not submit offer');
+            }
+        } catch (error) {
+            setLoading(false);
+            Alert.alert('Error', 'Server connection error. Make sure Laravel is running.');
+        }
     };
 
     return (
-        <View style={s.container}>
-            {/* Header */}
-            <View style={s.header}>
-                <TouchableOpacity onPress={() => router.back()}>
-                    <Text style={s.backBtn}>← Retour</Text>
-                </TouchableOpacity>
-                <Text style={s.headerTitle}>Soumettre une offre</Text>
-                <View style={{ width: 60 }} />
+        <View style={s.root}>
+
+            {/* ========== SIDEBAR ========== */}
+            <View style={s.sidebar}>
+                <View style={s.brand}>
+                    <View style={s.brandIcon}><Text style={s.brandIconText}>BL</Text></View>
+                    <Text style={s.brandName}>BricoLoc</Text>
+                </View>
+                <Text style={s.brandLabel}>HANDYMAN</Text>
+
+                <View style={s.nav}>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/home')}>
+                        <Text style={s.navIcon}>⊡</Text><Text style={s.navLabel}>Browse Jobs</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/my-bids')}>
+                        <Text style={s.navIcon}>◎</Text><Text style={s.navLabel}>My Offers</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/active-jobs')}>
+                        <Text style={s.navIcon}>◈</Text><Text style={s.navLabel}>Active Jobs</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/chats')}>
+                        <Text style={s.navIcon}>◉</Text><Text style={s.navLabel}>Messages</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/profile')}>
+                        <Text style={s.navIcon}>▣</Text><Text style={s.navLabel}>Profile</Text>
+                    </TouchableOpacity>
+                </View>
             </View>
 
-            <ScrollView style={s.content} showsVerticalScrollIndicator={false}>
-                {/* Job Info */}
-                <View style={s.jobInfoCard}>
-                    <Text style={s.jobLabel}>Travail</Text>
-                    <Text style={s.jobTitle}>{jobTitle || 'Reparation fuite eau'}</Text>
-                    <Text style={s.jobBudget}>Budget client: {jobBudget || '15,000 FCFA'}</Text>
+            {/* ========== MAIN CONTENT ========== */}
+            <View style={s.main}>
+                <View style={s.topbar}>
+                    <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
+                        <Text style={s.backBtnText}>← Back</Text>
+                    </TouchableOpacity>
                 </View>
 
-                {/* Amount */}
-                <Text style={s.label}>Votre prix (FCFA) *</Text>
-                <View style={s.inputRow}>
-                    <Text style={s.currencyIcon}>💰</Text>
-                    <TextInput
-                        style={s.input}
-                        placeholder="Ex: 12000"
-                        keyboardType="numeric"
-                        value={amount}
-                        onChangeText={setAmount}
-                    />
-                    <Text style={s.currencyLabel}>FCFA</Text>
-                </View>
-                <Text style={s.hint}>
-                    Budget client: {jobBudget || '15,000 FCFA'}
-                </Text>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                    <Text style={s.pageTitle}>Submit an Offer</Text>
+                    <Text style={s.pageSub}>Propose your price and convince the client.</Text>
 
-                {/* Estimated Days */}
-                <Text style={s.label}>Delai estime</Text>
-                <View style={s.daysRow}>
-                    {['1', '2', '3', '5', '7'].map(d => (
+                    {/* Job Info */}
+                    <View style={s.infoCard}>
+                        <Text style={s.jobLabel}>JOB</Text>
+                        <Text style={s.jobTitle}>{jobTitle || 'Pipe leak repair'}</Text>
+                        <Text style={s.jobBudget}>Client budget: {jobBudget || '15,000 FCFA'}</Text>
+                    </View>
+
+                    {/* Form Card */}
+                    <View style={s.formCard}>
+                        <Text style={s.sectionLabel}>YOUR OFFER</Text>
+
+                        <Text style={s.label}>Your Price (FCFA) *</Text>
+                        <View style={s.inputRow}>
+                            <TextInput style={s.inputFull} placeholder="Ex: 12000" placeholderTextColor="#9CA3AF" keyboardType="numeric" value={amount} onChangeText={setAmount} />
+                            <Text style={s.currencyLabel}>FCFA</Text>
+                        </View>
+                        <Text style={s.hint}>Client budget: {jobBudget || '15,000 FCFA'}</Text>
+
+                        <Text style={s.label}>Estimated Time</Text>
+                        <View style={s.daysRow}>
+                            {['1', '2', '3', '5', '7'].map(d => (
+                                <TouchableOpacity key={d} style={[s.dayChip, estimatedDays === d && s.dayChipActive]} onPress={() => setEstimatedDays(d)}>
+                                    <Text style={[s.dayText, estimatedDays === d && s.dayTextActive]}>{d} day{parseInt(d) > 1 ? 's' : ''}</Text>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
+
+                        <Text style={s.label}>Message to Client *</Text>
+                        <TextInput style={[s.inputFull, s.textArea, s.inputBox]} placeholder="Describe your approach, experience, availability..." placeholderTextColor="#9CA3AF" value={message} onChangeText={setMessage} multiline numberOfLines={5} textAlignVertical="top" />
+                        <Text style={s.charCount}>{message.length}/500</Text>
+
+                        <View style={s.divider} />
+
+                        <View style={s.tipsCard}>
+                            <Text style={s.tipsTitle}>💡 Tips for a Good Offer</Text>
+                            <Text style={s.tipsText}>• Propose a competitive but fair price</Text>
+                            <Text style={s.tipsText}>• Mention your experience with this type of work</Text>
+                            <Text style={s.tipsText}>• Indicate your precise availability</Text>
+                            <Text style={s.tipsText}>• Be polite and professional</Text>
+                        </View>
+
                         <TouchableOpacity
-                            key={d}
-                            style={[s.dayChip, estimatedDays === d && s.dayChipActive]}
-                            onPress={() => setEstimatedDays(d)}
+                            style={[s.submitBtn, (!amount || !message) && s.submitBtnDisabled]}
+                            onPress={handleSubmit}
+                            disabled={!amount || !message || loading}
                         >
-                            <Text style={[s.dayText, estimatedDays === d && s.dayTextActive]}>
-                                {d} jour{parseInt(d) > 1 ? 's' : ''}
-                            </Text>
+                            {loading ? (
+                                <ActivityIndicator color="white" />
+                            ) : (
+                                <Text style={s.submitBtnText}>
+                                    Submit Offer ({amount ? parseInt(amount).toLocaleString() + ' FCFA' : '...'})
+                                </Text>
+                            )}
                         </TouchableOpacity>
-                    ))}
-                </View>
+                    </View>
 
-                {/* Message */}
-                <Text style={s.label}>Message au client *</Text>
-                <TextInput
-                    style={[s.input, s.textArea]}
-                    placeholder="Decrivez votre approche, experience, disponibilite..."
-                    value={message}
-                    onChangeText={setMessage}
-                    multiline
-                    numberOfLines={5}
-                    textAlignVertical="top"
-                />
-                <Text style={s.charCount}>{message.length}/500</Text>
-
-                {/* Tips */}
-                <View style={s.tipsCard}>
-                    <Text style={s.tipsTitle}>💡 Conseils pour une bonne offre</Text>
-                    <Text style={s.tipsText}>
-                        • Proposez un prix competitif mais juste{'\n'}
-                        • Mentionnez votre experience avec ce type de travail{'\n'}
-                        • Indiquez votre disponibilite precise{'\n'}
-                        • Soyez poli et professionnel
-                    </Text>
-                </View>
-
-                {/* Submit */}
-                <TouchableOpacity
-                    style={[s.submitBtn, (!amount || !message) && s.submitBtnDisabled]}
-                    onPress={handleSubmit}
-                    disabled={!amount || !message || loading}
-                >
-                    {loading ? (
-                        <ActivityIndicator color="white" />
-                    ) : (
-                        <Text style={s.submitBtnText}>
-                            📤 Soumettre l offre ({amount ? parseInt(amount).toLocaleString() + ' FCFA' : '...'})
-                        </Text>
-                    )}
-                </TouchableOpacity>
-
-                <View style={{ height: 40 }} />
-            </ScrollView>
+                    <View style={{ height: 40 }} />
+                </ScrollView>
+            </View>
         </View>
     );
 }
 
 const s = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#F3F4F6' },
-    header: {
-        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-        backgroundColor: '#059669', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 16,
-    },
-    backBtn: { color: 'white', fontSize: 16 },
-    headerTitle: { color: 'white', fontSize: 18, fontWeight: 'bold' },
-    content: { flex: 1, paddingHorizontal: 14 },
+    root: { flex: 1, flexDirection: 'row', backgroundColor: '#F0FDF4' },
+
+    // Sidebar
+    sidebar: { width: 200, backgroundColor: '#064E3B', paddingVertical: 24, paddingHorizontal: 16 },
+    brand: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+    brandIcon: { width: 30, height: 30, backgroundColor: '#F59E0B', borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+    brandIconText: { color: '#064E3B', fontWeight: '700', fontSize: 13 },
+    brandName: { color: '#ECFDF5', fontWeight: '600', fontSize: 15 },
+    brandLabel: { color: '#6EE7B7', fontSize: 9, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 22, marginTop: 2 },
+    nav: {},
+    navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 8, borderRadius: 6, marginBottom: 1, gap: 10 },
+    navIcon: { fontSize: 14, color: '#6EE7B7', width: 18, textAlign: 'center' },
+    navLabel: { fontSize: 12, color: '#A7F3D0' },
+
+    // Main
+    main: { flex: 1, paddingHorizontal: 24, paddingTop: 20 },
+    topbar: { marginBottom: 8 },
+    backBtn: { alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, backgroundColor: 'white', borderWidth: 1, borderColor: '#D1FAE5' },
+    backBtnText: { color: '#6B7280', fontSize: 13, fontWeight: '500' },
+    pageTitle: { fontSize: 24, fontWeight: '700', color: '#064E3B', marginTop: 8 },
+    pageSub: { fontSize: 13, color: '#6B7280', marginTop: 4, marginBottom: 18 },
 
     // Job Info
-    jobInfoCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginTop: 14, marginBottom: 4 },
-    jobLabel: { color: '#9CA3AF', fontSize: 12, marginBottom: 4 },
-    jobTitle: { fontSize: 16, fontWeight: '600', color: '#111827' },
-    jobBudget: { color: '#059669', fontWeight: '500', marginTop: 4 },
+    infoCard: { backgroundColor: 'white', borderRadius: 12, padding: 16, marginBottom: 14, borderWidth: 1, borderColor: '#D1FAE5' },
+    jobLabel: { fontSize: 9, fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 },
+    jobTitle: { fontSize: 16, fontWeight: '600', color: '#064E3B' },
+    jobBudget: { color: '#059669', fontWeight: '500', marginTop: 4, fontSize: 13 },
 
-    // Inputs
-    label: { fontSize: 15, fontWeight: '600', color: '#111827', marginTop: 18, marginBottom: 8 },
-    inputRow: {
-        flexDirection: 'row', alignItems: 'center', backgroundColor: 'white',
-        borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 14,
-    },
-    currencyIcon: { fontSize: 16, marginRight: 8 },
-    input: { flex: 1, fontSize: 16, paddingVertical: 12, color: '#111827' },
-    currencyLabel: { color: '#6B7280', fontWeight: '500' },
-    hint: { color: '#9CA3AF', fontSize: 12, marginTop: 4 },
+    // Form
+    formCard: { backgroundColor: 'white', borderRadius: 14, padding: 22, borderWidth: 1, borderColor: '#D1FAE5' },
+    sectionLabel: { fontSize: 10, fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 },
+    label: { fontSize: 13, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 14 },
+    inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 14 },
+    inputFull: { flex: 1, paddingVertical: 12, fontSize: 15, color: '#111827' },
+    inputBox: { backgroundColor: '#F9FAFB', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 12 },
+    currencyLabel: { color: '#6B7280', fontWeight: '500', fontSize: 13 },
+    hint: { color: '#9CA3AF', fontSize: 11, marginTop: 4 },
     textArea: { minHeight: 100, textAlignVertical: 'top' },
-    charCount: { textAlign: 'right', color: '#9CA3AF', fontSize: 11, marginTop: 4 },
+    charCount: { textAlign: 'right', color: '#9CA3AF', fontSize: 10, marginTop: 4 },
 
     // Days
     daysRow: { flexDirection: 'row', gap: 8 },
-    dayChip: {
-        paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10,
-        backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E5E7EB',
-    },
+    dayChip: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 8, backgroundColor: 'white', borderWidth: 1.5, borderColor: '#D1FAE5' },
     dayChipActive: { backgroundColor: '#059669', borderColor: '#059669' },
-    dayText: { color: '#374151', fontWeight: '500' },
+    dayText: { color: '#374151', fontWeight: '500', fontSize: 13 },
     dayTextActive: { color: 'white' },
 
+    // Divider
+    divider: { borderTopWidth: 1, borderColor: '#E5E7EB', marginVertical: 14 },
+
     // Tips
-    tipsCard: { backgroundColor: '#F0FDF4', borderRadius: 12, padding: 14, marginTop: 20, borderWidth: 1, borderColor: '#BBF7D0' },
-    tipsTitle: { fontWeight: '600', color: '#166534', marginBottom: 8 },
-    tipsText: { color: '#166534', fontSize: 13, lineHeight: 20 },
+    tipsCard: { backgroundColor: '#FFFBEB', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#FDE68A' },
+    tipsTitle: { fontWeight: '600', color: '#B45309', marginBottom: 8, fontSize: 13 },
+    tipsText: { color: '#92400E', fontSize: 12, lineHeight: 22 },
 
     // Submit
-    submitBtn: { backgroundColor: '#059669', borderRadius: 12, paddingVertical: 16, alignItems: 'center', marginTop: 24 },
+    submitBtn: { backgroundColor: '#059669', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 20 },
     submitBtnDisabled: { backgroundColor: '#A7F3D0' },
-    submitBtnText: { color: 'white', fontWeight: '700', fontSize: 16 },
+    submitBtnText: { color: 'white', fontWeight: '700', fontSize: 14 },
 });
