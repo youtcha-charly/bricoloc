@@ -8,7 +8,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
+use App\Mail\PasswordResetMail;
 
 class AuthController extends Controller
 {
@@ -179,11 +181,22 @@ class AuthController extends Controller
 
         if ($user) {
             $token = Str::random(64);
+
+            // Delete any existing reset tokens for this email
+            DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+
             DB::table('password_reset_tokens')->insert([
                 'email' => $request->email,
                 'token' => Hash::make($token),
                 'created_at' => now(),
             ]);
+
+            // Send the actual email
+            try {
+                Mail::to($request->email)->send(new PasswordResetMail($token, $request->email));
+            } catch (\Exception $e) {
+                \Log::error('Failed to send password reset email: ' . $e->getMessage());
+            }
         }
 
         // Always return success to prevent email enumeration
