@@ -1,39 +1,37 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { authAPI } from '../src/services/api';
 
 export default function ForgotPassword() {
     const [email, setEmail] = useState('');
     const [loading, setLoading] = useState(false);
     const [sent, setSent] = useState(false);
+    const [error, setError] = useState('');
     const router = useRouter();
 
     const handleSendResetLink = async () => {
         if (!email) {
-            window.alert('Please enter your email address');
+            setError('Please enter your email address');
             return;
         }
 
         setLoading(true);
+        setError('');
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/auth/forgot-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ email }),
-            });
-
-            const data = await response.json();
+            const res = await authAPI.forgotPassword(email);
+            const data = res.data;
             setLoading(false);
 
             if (data.success) {
                 setSent(true);
             } else {
-                window.alert(data.message || 'Error sending reset link');
+                setError(data.message || 'Error sending reset link');
             }
         } catch (error) {
             setLoading(false);
-            window.alert('Server connection error');
+            setError('Server connection error');
         }
     };
 
@@ -51,6 +49,12 @@ export default function ForgotPassword() {
                     <>
                         <Text style={s.title}>Forgot Password?</Text>
                         <Text style={s.subtitle}>Enter your email and we'll send you a reset link.</Text>
+
+                        {error ? (
+                            <View style={s.errorBanner}>
+                                <Text style={s.errorText}>❌ {error}</Text>
+                            </View>
+                        ) : null}
 
                         <Text style={s.label}>Email</Text>
                         <TextInput
@@ -95,6 +99,8 @@ const s = StyleSheet.create({
     subtitle: { fontSize: 13, color: '#6B7280', marginBottom: 24, textAlign: 'center', lineHeight: 20 },
     successIcon: { fontSize: 48, textAlign: 'center', marginBottom: 16 },
     hint: { fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 12 },
+    errorBanner: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 8, padding: 12, marginBottom: 16 },
+    errorText: { color: '#991B1B', fontSize: 13, textAlign: 'center' },
     label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
     input: { backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#111827', marginBottom: 20 },
     btn: { backgroundColor: '#D9A441', borderRadius: 10, paddingVertical: 14, alignItems: 'center' },

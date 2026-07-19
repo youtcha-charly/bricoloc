@@ -4,14 +4,19 @@ import {
     Alert, Image, StyleSheet, Modal, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../src/contexts/AuthContext';
+import { authAPI } from '../src/services/api';
 
 export default function Profile() {
     const router = useRouter();
+    const { user, refreshUser, logout } = useAuth();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [isEditing, setIsEditing] = useState(false);
     const [showGenderPicker, setShowGenderPicker] = useState(false);
     const [showCityPicker, setShowCityPicker] = useState(false);
+    const [statusType, setStatusType] = useState(null);
+    const [statusMsg, setStatusMsg] = useState('');
 
     const [firstName, setFirstName] = useState('');
     const [lastName, setLastName] = useState('');
@@ -24,81 +29,60 @@ export default function Profile() {
     const cities = ['Douala', 'Yaounde', 'Bafoussam', 'Bamenda', 'Garoua', 'Maroua', 'Limbe', 'Kribi', 'Buea', 'Ebolowa'];
     const genders = ['Male', 'Female', 'Other'];
 
-    const getToken = () => localStorage.getItem('auth_token');
-
-    // Load user profile from API
     useEffect(() => {
-        loadProfile();
-    }, []);
-
-    const loadProfile = async () => {
-        setLoading(true);
-        try {
-            const token = getToken();
-            const response = await fetch('http://127.0.0.1:8000/api/v1/user', {
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-            });
-            const data = await response.json();
-            if (data.success || data.user) {
-                const user = data.user || data;
-                setFirstName(user.first_name || '');
-                setLastName(user.last_name || '');
-                setEmail(user.email || '');
-                setPhone((user.phone_number || '').replace('+237', ''));
-                setGender(user.gender || 'Male');
-                setDateOfBirth(user.date_of_birth || '');
-                setCity(user.city || 'Douala');
-            }
-        } catch (err) {
-            console.log('Error loading profile:', err);
+        if (user) {
+            setFirstName(user.first_name || '');
+            setLastName(user.last_name || '');
+            setEmail(user.email || '');
+            setPhone((user.phone_number || '').replace('+237', ''));
+            setGender(user.gender || 'Male');
+            setDateOfBirth(user.date_of_birth || '');
+            setCity(user.city || 'Douala');
+            setLoading(false);
         }
-        setLoading(false);
-    };
+    }, [user]);
 
     const handleSave = async () => {
         if (!firstName || !lastName || !email || !phone) {
-            Alert.alert('Error', 'Please fill in all required fields');
+            setStatusType('error');
+            setStatusMsg('Please fill in all required fields');
             return;
         }
 
         setSaving(true);
+        setStatusType('info');
+        setStatusMsg('Saving profile...');
         try {
-            const token = getToken();
-            const response = await fetch('http://127.0.0.1:8000/api/v1/user/profile', {
-                method: 'PUT',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({
-                    first_name: firstName,
-                    last_name: lastName,
-                    email: email,
-                    phone_number: '+237' + phone,
-                    gender: gender,
-                    date_of_birth: dateOfBirth,
-                    city: city,
-                }),
+            const res = await authAPI.updateProfile({
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone_number: '+237' + phone,
+                gender: gender,
+                date_of_birth: dateOfBirth,
+                city: city,
             });
-            const data = await response.json();
+            const data = res.data;
             if (data.success) {
-                // Update localStorage
-                localStorage.setItem('user_data', JSON.stringify(data.user));
+                await refreshUser();
                 setIsEditing(false);
-                Alert.alert('✅ Profile Updated', 'Your information has been saved to the database.');
+                setStatusType('success');
+                setStatusMsg('Profile updated successfully!');
+                setTimeout(() => { setStatusType(null); setStatusMsg(''); }, 4000);
             } else {
-                Alert.alert('Error', data.message || 'Could not update profile');
+                setStatusType('error');
+                setStatusMsg(data.message || 'Could not update profile');
             }
         } catch (err) {
-            Alert.alert('Error', 'Server connection error');
+            setStatusType('error');
+            const msg = err?.response?.data?.message || err?.response?.data?.errors?.email?.[0] || 'Server connection error';
+            setStatusMsg(msg);
         }
         setSaving(false);
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_data');
+    const handleLogout = async () => {
+        await logout();
         router.replace('/login');
     };
 
@@ -129,8 +113,11 @@ export default function Profile() {
                 <TouchableOpacity style={s.navItem} onPress={() => router.push('/post-job')}>
                     <Text style={s.navIcon}>📝</Text><Text style={s.navLabel}>Post a Job</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.navItem}>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/chats')}>
                     <Text style={s.navIcon}>💬</Text><Text style={s.navLabel}>Messages</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/notifications')}>
+                    <Text style={s.navIcon}>🔔</Text><Text style={s.navLabel}>Notifications</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[s.navItem, s.navActive]}>
                     <Text style={s.navIcon}>👤</Text><Text style={[s.navLabel, s.navLabelActive]}>Profile</Text>
@@ -143,7 +130,7 @@ export default function Profile() {
                     <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
                         <Text style={s.backBtnText}>← Back</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+                    <TouchableOpacity onPress={() => { setIsEditing(!isEditing); setStatusType(null); setStatusMsg(''); }}>
                         <Text style={s.editBtn}>{isEditing ? 'Cancel' : 'Edit'}</Text>
                     </TouchableOpacity>
                 </View>
@@ -164,6 +151,14 @@ export default function Profile() {
                     {/* Personal Information */}
                     <View style={s.formCard}>
                         <Text style={s.sectionLabel}>PERSONAL INFORMATION</Text>
+
+                        {statusType && (
+                            <View style={[s.statusBanner, statusType === 'error' && s.statusBannerError, statusType === 'info' && s.statusBannerInfo, statusType === 'success' && s.statusBannerSuccess]}>
+                                <Text style={[s.statusText, statusType === 'error' && s.statusTextError, statusType === 'info' && s.statusTextInfo, statusType === 'success' && s.statusTextSuccess]}>
+                                    {statusType === 'info' ? 'ℹ️ ' : statusType === 'success' ? '✅ ' : '❌ '}{statusMsg}
+                                </Text>
+                            </View>
+                        )}
 
                         <View style={s.row}>
                             <View style={s.half}>
@@ -309,6 +304,14 @@ const s = StyleSheet.create({
     selectArrow: { fontSize: 10, color: '#9CA3AF' },
     saveBtn: { backgroundColor: '#D9A441', borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 18 },
     saveBtnText: { color: '#0B3D3E', fontWeight: '600', fontSize: 14 },
+    statusBanner: { borderRadius: 8, padding: 12, marginBottom: 14, borderWidth: 1 },
+    statusBannerInfo: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+    statusBannerSuccess: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+    statusBannerError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+    statusText: { fontSize: 13, lineHeight: 20 },
+    statusTextInfo: { color: '#1E40AF' },
+    statusTextSuccess: { color: '#166534' },
+    statusTextError: { color: '#991B1B' },
 
     // Account Info
     infoRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 9 },

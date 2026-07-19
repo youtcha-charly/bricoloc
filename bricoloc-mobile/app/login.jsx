@@ -1,44 +1,73 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLanguage } from '../src/i18n/LanguageContext';
-import { useRouter } from 'expo-router';
+import { useAuth } from '../src/contexts/AuthContext';
+import { useRouter, useFocusEffect } from 'expo-router';
 
 export default function Login() {
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    const [selectedRole, setSelectedRole] = useState('client');
+    const [statusMsg, setStatusMsg] = useState(null);
+    const [statusType, setStatusType] = useState(null);
+    const [formKey, setFormKey] = useState(0);
     const router = useRouter();
     const { t, language, changeLanguage } = useLanguage();
+    const { user, login, loading: authLoading } = useAuth();
+
+    useFocusEffect(
+        useCallback(() => {
+            setEmail('');
+            setPassword('');
+            setStatusMsg(null);
+            setStatusType(null);
+            setLoading(false);
+            setFormKey(k => k + 1);
+        }, [])
+    );
+
+    useEffect(() => {
+        if (authLoading || !user) return;
+        if (user.role === 'bricoleur') router.replace('/(bricoleur)/home');
+        else if (user.role === 'admin') router.replace('/(admin)/dashboard');
+        else router.replace('/home');
+    }, [user, authLoading]);
 
     const handleLogin = async () => {
         if (!email || !password) {
-            window.alert('Please fill in all fields');
+            setStatusType('error');
+            setStatusMsg('Please fill in all fields');
             return;
         }
+
+        setStatusType('info');
+        setStatusMsg('Checking credentials...');
         setLoading(true);
+
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ email, password }),
-            });
-            const data = await response.json();
+            const result = await login(email, password);
             setLoading(false);
-            if (data.success) {
-                localStorage.setItem('auth_token', data.token);
-                localStorage.setItem('user_data', JSON.stringify(data.user));
-                window.alert('Welcome ' + data.user.name + ' !');
-                if (data.user.role === 'bricoleur') router.replace('/(bricoleur)/home');
-                else if (data.user.role === 'admin') router.replace('/(admin)/dashboard');
-                else router.replace('/home');
+
+            if (result.success) {
+                setStatusType('success');
+                setStatusMsg('Login successful! Redirecting to your dashboard...');
+                setEmail('');
+                setPassword('');
+                setTimeout(() => {
+                    const role = result.user?.role;
+                    if (role === 'bricoleur') router.replace('/(bricoleur)/home');
+                    else if (role === 'admin') router.replace('/(admin)/dashboard');
+                    else router.replace('/home');
+                }, 1200);
             } else {
-                window.alert(data.message || 'Error');
+                setStatusType('error');
+                setStatusMsg(result.message || 'Invalid credentials');
             }
         } catch (error) {
             setLoading(false);
-            window.alert('Server connection error');
+            setStatusType('error');
+            setStatusMsg(error?.response?.data?.message || 'Server connection error. Make sure the server is running.');
         }
     };
 
@@ -57,10 +86,10 @@ export default function Login() {
                     {/* Language Switcher */}
                     <View style={s.langSwitcher}>
                         <TouchableOpacity onPress={() => changeLanguage('en')} style={[s.langBtn, language === 'en' && s.langBtnActive]}>
-                            <Text style={[s.langText, language === 'en' && s.langTextActive]}>🇬🇧 EN</Text>
+                            <Text style={[s.langText, language === 'en' && s.langTextActive]}>EN</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => changeLanguage('fr')} style={[s.langBtn, language === 'fr' && s.langBtnActive]}>
-                            <Text style={[s.langText, language === 'fr' && s.langTextActive]}>🇫🇷 FR</Text>
+                            <Text style={[s.langText, language === 'fr' && s.langTextActive]}>FR</Text>
                         </TouchableOpacity>
                     </View>
 
@@ -68,37 +97,46 @@ export default function Login() {
                     <Text style={s.welcome}>{t('auth.welcomeBack')}</Text>
                     <Text style={s.subtitle}>{t('auth.signInToAccount')}</Text>
 
-                    {/* Role Tabs */}
-                    <View style={s.roleTabs}>
-                        <TouchableOpacity style={[s.roleTab, selectedRole === 'client' && s.roleTabActive]} onPress={() => setSelectedRole('client')}>
-                            <Text style={[s.roleTabText, selectedRole === 'client' && s.roleTabTextActive]}>👤 {t('auth.client')}</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity style={[s.roleTab, selectedRole === 'bricoleur' && s.roleTabActiveBricoleur]} onPress={() => setSelectedRole('bricoleur')}>
-                            <Text style={[s.roleTabText, selectedRole === 'bricoleur' && s.roleTabTextActive]}>🔧 {t('auth.handyman')}</Text>
-                        </TouchableOpacity>
-                    </View>
+                    {/* Status Message */}
+                    {statusMsg && (
+                        <View style={[
+                            s.statusBanner,
+                            statusType === 'success' && s.statusSuccess,
+                            statusType === 'error' && s.statusError,
+                            statusType === 'info' && s.statusInfo,
+                        ]}>
+                            <Text style={[
+                                s.statusText,
+                                statusType === 'success' && s.statusTextSuccess,
+                                statusType === 'error' && s.statusTextError,
+                                statusType === 'info' && s.statusTextInfo,
+                            ]}>
+                                {statusType === 'success' ? '✓ ' : statusType === 'error' ? '✗ ' : '● '}
+                                {statusMsg}
+                            </Text>
+                        </View>
+                    )}
 
                     {/* Email */}
                     <Text style={s.label}>{t('auth.email')}</Text>
-                    <TextInput style={s.input} placeholder="example@email.com" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" value={email} onChangeText={setEmail} />
+                    <TextInput key={`email-${formKey}`} style={s.input} placeholder="example@email.com" placeholderTextColor="#9CA3AF" keyboardType="email-address" autoCapitalize="none" autoComplete="off" textContentType="none" value={email} onChangeText={setEmail} />
 
                     {/* Password */}
                     <Text style={s.label}>{t('auth.password')}</Text>
                     <View style={s.inputRow}>
-                        <TextInput style={s.inputFull} placeholder="••••••••" placeholderTextColor="#9CA3AF" secureTextEntry={!showPassword} value={password} onChangeText={setPassword} />
+                        <TextInput key={`password-${formKey}`} style={s.inputFull} placeholder="••••••••" placeholderTextColor="#9CA3AF" secureTextEntry={!showPassword} autoComplete="off" textContentType="none" value={password} onChangeText={setPassword} />
                         <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={s.eyeBtn}>
                             <Text style={s.eye}>{showPassword ? '🙈' : '👁️'}</Text>
                         </TouchableOpacity>
                     </View>
 
                     {/* Forgot Password */}
-                    {/* Forgot Password */}
-<TouchableOpacity style={s.forgotBtn}>
-    <Text style={s.forgotText}>{t('auth.forgotPassword')}</Text>
-</TouchableOpacity>
+                    <TouchableOpacity style={s.forgotBtn} onPress={() => router.push('/forgot-password')}>
+                        <Text style={s.forgotText}>{t('auth.forgotPassword')}</Text>
+                    </TouchableOpacity>
 
                     {/* Login Button */}
-                    <TouchableOpacity style={[s.btn, (!email || !password) && s.btnDisabled]} onPress={handleLogin} disabled={!email || !password || loading}>
+                    <TouchableOpacity style={[s.btn, (!email || !password || loading) && s.btnDisabled]} onPress={handleLogin} disabled={!email || !password || loading}>
                         {loading ? <ActivityIndicator color="#0B3D3E" /> : <Text style={s.btnText}>{t('auth.login')}</Text>}
                     </TouchableOpacity>
 
@@ -107,16 +145,14 @@ export default function Login() {
                         <View style={s.line} /><Text style={s.or}>{t('common.or')}</Text><View style={s.line} />
                     </View>
 
-                    {/* Register Link — NOW VERY VISIBLE */}
+                    {/* Register Link */}
                     <TouchableOpacity style={s.registerBtn} onPress={() => router.push('/register')}>
                         <Text style={s.registerText}>
                             {t('auth.noAccount')}{' '}
                             <Text style={s.registerLink}>{t('auth.register')}</Text>
                         </Text>
                     </TouchableOpacity>
-                    
 
-                    {/* Extra spacing so it's not hidden */}
                     <View style={{ height: 30 }} />
 
                 </View>
@@ -145,12 +181,15 @@ const s = StyleSheet.create({
     welcome: { fontSize: 22, fontWeight: '700', color: '#1A1A1A', marginBottom: 2 },
     subtitle: { fontSize: 13, color: '#6B7280', marginBottom: 18 },
 
-    roleTabs: { flexDirection: 'row', backgroundColor: '#E5E7EB', borderRadius: 10, padding: 3, marginBottom: 18 },
-    roleTab: { flex: 1, paddingVertical: 10, borderRadius: 8, alignItems: 'center' },
-    roleTabActive: { backgroundColor: '#D9A441' },
-    roleTabActiveBricoleur: { backgroundColor: '#0B3D3E' },
-    roleTabText: { color: '#6B7280', fontWeight: '600', fontSize: 13 },
-    roleTabTextActive: { color: '#0B3D3E' },
+    // Status banner
+    statusBanner: { paddingVertical: 10, paddingHorizontal: 14, borderRadius: 8, marginBottom: 14 },
+    statusSuccess: { backgroundColor: '#D1FAE5' },
+    statusError: { backgroundColor: '#FEE2E2' },
+    statusInfo: { backgroundColor: '#DBEAFE' },
+    statusText: { fontSize: 13, fontWeight: '600', lineHeight: 18 },
+    statusTextSuccess: { color: '#065F46' },
+    statusTextError: { color: '#991B1B' },
+    statusTextInfo: { color: '#1E40AF' },
 
     label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 5, marginTop: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
     input: { backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: '#111827' },
@@ -170,7 +209,6 @@ const s = StyleSheet.create({
     line: { flex: 1, height: 1, backgroundColor: '#E5E7EB' },
     or: { marginHorizontal: 12, color: '#9CA3AF', fontSize: 12, textTransform: 'uppercase' },
 
-    // Register — BIG AND VISIBLE
     registerBtn: {
         backgroundColor: '#0B3D3E',
         paddingVertical: 14,

@@ -1,10 +1,25 @@
 ﻿import React, { useEffect } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../src/contexts/AuthContext';
 
 export default function Splash() {
     const router = useRouter();
-    useEffect(() => { setTimeout(() => router.replace('/login'), 2000); }, []);
+    const { user, loading } = useAuth();
+
+    useEffect(() => {
+        if (loading) return;
+
+        if (user) {
+            const role = user.role;
+            if (role === 'bricoleur') router.replace('/(bricoleur)/home');
+            else if (role === 'admin') router.replace('/(admin)/dashboard');
+            else router.replace('/home');
+        } else {
+            router.replace('/login');
+        }
+    }, [user, loading]);
+
     return (
         <View style={s.container}>
             <View style={s.box}><Text style={s.boxText}>BL</Text></View>

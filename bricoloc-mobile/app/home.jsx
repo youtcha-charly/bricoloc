@@ -1,11 +1,39 @@
-﻿import React, { useState } from 'react';
+﻿import React, { useState, useCallback } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
 import { useAuth } from '../src/contexts/AuthContext';
+import { jobsAPI } from '../src/services/api';
 
 export default function Home() {
     const router = useRouter();
     const { user, logout } = useAuth();
+    const [stats, setStats] = useState({ jobs: 0, offers: 0, active: 0, rating: '-' });
+
+    useFocusEffect(useCallback(() => {
+        loadStats();
+    }, []));
+
+    const loadStats = async () => {
+        try {
+            const res = await jobsAPI.list();
+            const data = res.data;
+            if (data.success && data.data) {
+                const jobList = data.data.data || data.data || [];
+                const jobs = Array.isArray(jobList) ? jobList : [];
+                const open = jobs.filter(j => j.status === 'open').length;
+                const totalOffers = jobs.reduce((sum, j) => sum + (j.bids_count ?? j.bids?.length ?? 0), 0);
+                setStats({
+                    jobs: jobs.length,
+                    offers: totalOffers,
+                    active: open,
+                    rating: '-',
+                });
+            }
+        } catch (err) {
+            console.log('Error loading stats:', err);
+        }
+    };
 
     const handleLogout = async () => {
         await logout();
@@ -29,12 +57,6 @@ export default function Home() {
         { icon: '📱', name: 'Repair' },
     ];
 
-    const activities = [
-        { title: 'New offer received', desc: 'Plumber - Douala', time: '5 min ago', icon: '💬' },
-        { title: 'Job completed', desc: 'Painting - Yaounde', time: '2h ago', icon: '✅' },
-        { title: 'Handyman verified', desc: 'Jean K. joined the platform', time: '3h ago', icon: '👷' },
-    ];
-
     return (
         <View style={s.container}>
 
@@ -54,10 +76,13 @@ export default function Home() {
                 <TouchableOpacity style={s.navItem} onPress={() => router.push('/post-job')}>
                     <Text style={s.navIcon}>📝</Text><Text style={s.navLabel}>Post a Job</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.navItem}>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/chats')}>
                     <Text style={s.navIcon}>💬</Text><Text style={s.navLabel}>Messages</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.navItem}>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/notifications')}>
+                    <Text style={s.navIcon}>🔔</Text><Text style={s.navLabel}>Notifications</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/dashboard')}>
                     <Text style={s.navIcon}>⭐</Text><Text style={s.navLabel}>Reviews</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.navItem} onPress={() => router.push('/profile')}>
@@ -117,42 +142,25 @@ export default function Home() {
                         ))}
                     </ScrollView>
 
-                    {/* Recent Activity */}
-                    <View style={s.sectionHeader}>
-                        <Text style={s.sectionTitle}>Recent Activity</Text>
-                    </View>
-                    {activities.map((activity, index) => (
-                        <View key={index} style={s.activityCard}>
-                            <View style={s.activityIconBox}>
-                                <Text style={s.activityEmoji}>{activity.icon}</Text>
-                            </View>
-                            <View style={s.activityInfo}>
-                                <Text style={s.activityTitle}>{activity.title}</Text>
-                                <Text style={s.activityDesc}>{activity.desc}</Text>
-                            </View>
-                            <Text style={s.activityTime}>{activity.time}</Text>
-                        </View>
-                    ))}
-
                     {/* Stats */}
                     <View style={s.sectionHeader}>
                         <Text style={s.sectionTitle}>Your Summary</Text>
                     </View>
                     <View style={s.statsGrid}>
                         <View style={[s.statCard, { backgroundColor: '#EFF6FF' }]}>
-                            <Text style={[s.statNum, { color: '#2563EB' }]}>6</Text>
+                            <Text style={[s.statNum, { color: '#2563EB' }]}>{stats.jobs}</Text>
                             <Text style={s.statLabel}>Jobs</Text>
                         </View>
                         <View style={[s.statCard, { backgroundColor: '#FDF3E0' }]}>
-                            <Text style={[s.statNum, { color: '#B8860B' }]}>15</Text>
+                            <Text style={[s.statNum, { color: '#B8860B' }]}>{stats.offers}</Text>
                             <Text style={s.statLabel}>Offers</Text>
                         </View>
                         <View style={[s.statCard, { backgroundColor: '#E6F4F2' }]}>
-                            <Text style={[s.statNum, { color: '#0F766E' }]}>3</Text>
+                            <Text style={[s.statNum, { color: '#0F766E' }]}>{stats.active}</Text>
                             <Text style={s.statLabel}>Active</Text>
                         </View>
                         <View style={[s.statCard, { backgroundColor: '#F3F4F6' }]}>
-                            <Text style={[s.statNum, { color: '#374151' }]}>4.8</Text>
+                            <Text style={[s.statNum, { color: '#374151' }]}>{stats.rating}</Text>
                             <Text style={s.statLabel}>Rating</Text>
                         </View>
                     </View>
@@ -215,15 +223,6 @@ const s = StyleSheet.create({
     catCard: { alignItems: 'center', backgroundColor: 'white', borderRadius: 12, padding: 14, marginRight: 10, width: 85, borderWidth: 1, borderColor: '#E5E7EB' },
     catIcon: { fontSize: 24, marginBottom: 6 },
     catName: { fontSize: 10, color: '#374151', fontWeight: '500', textAlign: 'center' },
-
-    // ===== ACTIVITY =====
-    activityCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderRadius: 12, padding: 14, marginBottom: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-    activityIconBox: { width: 38, height: 38, borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 12, backgroundColor: '#FDF3E0' },
-    activityEmoji: { fontSize: 16 },
-    activityInfo: { flex: 1 },
-    activityTitle: { fontSize: 13, fontWeight: '600', color: '#111827' },
-    activityDesc: { color: '#6B7280', fontSize: 11, marginTop: 2 },
-    activityTime: { color: '#9CA3AF', fontSize: 10 },
 
     // ===== STATS =====
     statsGrid: { flexDirection: 'row', gap: 8 },

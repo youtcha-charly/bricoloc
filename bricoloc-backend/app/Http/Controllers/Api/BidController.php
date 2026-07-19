@@ -5,9 +5,11 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Bid;
 use App\Models\Job;
+use App\Models\Chat;
 use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class BidController extends Controller
 {
@@ -88,7 +90,7 @@ class BidController extends Controller
      */
     public function myBids(Request $request)
     {
-        $bids = Bid::with('job')
+        $bids = Bid::with('job', 'job.client')
             ->where('bricoleur_id', $request->user()->id)
             ->orderBy('created_at', 'desc')
             ->get();
@@ -104,43 +106,122 @@ class BidController extends Controller
      */
     public function accept(Request $request, $bidId)
     {
-        $bid = Bid::findOrFail($bidId);
-        $job = Job::findOrFail($bid->job_id);
+        \Log::info('Accept bid called', [
+            'bid_id' => $bidId, 
+            'user_id' => $request->user()->id,
+            'user_role' => $request->user()->role
+        ]);
+        
+        try {
+            $bid = Bid::with('bricoleur')->find($bidId);
+            if (!$bid) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Bid not found'
+                ], 404);
+            }
 
-        // Check if the authenticated user is the job owner
-        if ($job->client_id !== $request->user()->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            $job = Job::find($bid->job_id);
+            if (!$job) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Job not found'
+                ], 404);
+            }
+
+            // Check if user is the job owner (must be a client)
+            if ((int) $job->client_id !== (int) $request->user()->id) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Unauthorized - Only the job owner can accept bids'
+                ], 403);
+            }
+
+            // Check if job is still open
+            if ($job->status !== 'open') {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'This job is no longer open for acceptance'
+                ], 400);
+            }
+
+            // Check if bid is still pending
+            if ($bid->status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This bid has already been ' . $bid->status
+                ], 400);
+            }
+
+            DB::beginTransaction();
+
+            // 1. Accept the bid
+            $bid->status = 'accepted';
+            $bid->accepted_at = now();
+            $bid->save();
+
+            // 2. Reject all other pending bids
+            Bid::where('job_id', $job->id)
+                ->where('id', '!=', $bidId)
+                ->where('status', 'pending')
+                ->update(['status' => 'rejected']);
+
+            // 3. Update job status
+            $job->status = 'assigned';
+            $job->hired_bricoleur_id = $bid->bricoleur_id;
+            $job->save();
+
+            // 4. Create chat room
+            $chat = Chat::firstOrCreate(
+                [
+                    'job_id' => $job->id,
+                    'bricoleur_id' => $bid->bricoleur_id,
+                ],
+                [
+                    'client_id' => $request->user()->id,
+                    'last_message_at' => now(),
+                ]
+            );
+
+            // 5. Notify the bricoleur
+            Notification::create([
+                'user_id' => $bid->bricoleur_id,
+                'title' => '🎉 Bid Accepted!',
+                'body' => 'Your bid of ' . number_format($bid->amount) . ' FCFA on "' . $job->title . '" has been accepted!',
+                'type' => 'bid_accepted',
+                'data' => json_encode([
+                    'job_id' => $job->id,
+                    'bid_id' => $bid->id,
+                    'chat_id' => $chat->id,
+                ]),
+            ]);
+
+            DB::commit();
+
+            \Log::info('Bid accepted successfully', [
+                'bid_id' => $bidId,
+                'chat_id' => $chat->id
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bid accepted successfully!',
+                'data' => [
+                    'bid' => $bid,
+                    'job' => $job,
+                    'chat_id' => $chat->id,
+                    'bricoleur_name' => $bid->bricoleur->name ?? 'Bricoleur',
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            \Log::error('Accept bid error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
         }
-
-        // Accept the bid
-        $bid->status = 'accepted';
-        $bid->accepted_at = now();
-        $bid->save();
-
-        // Reject all other bids on this job
-        Bid::where('job_id', $job->id)
-            ->where('id', '!=', $bidId)
-            ->where('status', 'pending')
-            ->update(['status' => 'rejected']);
-
-        // Update job status
-        $job->status = 'assigned';
-        $job->hired_bricoleur_id = $bid->bricoleur_id;
-        $job->save();
-
-        // Notify the accepted bricoleur
-        Notification::create([
-            'user_id' => $bid->bricoleur_id,
-            'title' => 'Bid Accepted!',
-            'body' => 'Your bid of ' . number_format($bid->amount) . ' FCFA on "' . $job->title . '" has been accepted!',
-            'type' => 'bid_accepted',
-            'data' => json_encode(['job_id' => $job->id, 'bid_id' => $bid->id]),
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Bid accepted. The bricoleur has been notified.',
-        ]);
     }
 
     /**
@@ -148,16 +229,50 @@ class BidController extends Controller
      */
     public function reject(Request $request, $bidId)
     {
-        $bid = Bid::findOrFail($bidId);
-        $job = Job::findOrFail($bid->job_id);
+        try {
+            $bid = Bid::findOrFail($bidId);
+            $job = Job::findOrFail($bid->job_id);
 
-        if ($job->client_id !== $request->user()->id) {
-            return response()->json(['success' => false, 'message' => 'Unauthorized'], 403);
+            if ((int) $job->client_id !== (int) $request->user()->id) {
+                return response()->json([
+                    'success' => false, 
+                    'message' => 'Unauthorized'
+                ], 403);
+            }
+
+            if ($bid->status !== 'pending') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'This bid has already been ' . $bid->status
+                ], 400);
+            }
+
+            $bid->status = 'rejected';
+            $bid->save();
+
+            // Notify the bricoleur
+            Notification::create([
+                'user_id' => $bid->bricoleur_id,
+                'title' => 'Bid Rejected',
+                'body' => 'Your bid on "' . $job->title . '" was rejected.',
+                'type' => 'bid_rejected',
+                'data' => json_encode([
+                    'job_id' => $job->id,
+                    'bid_id' => $bid->id,
+                ]),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Bid rejected successfully',
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error('Reject bid error: ' . $e->getMessage());
+            return response()->json([
+                'success' => false,
+                'message' => 'Error: ' . $e->getMessage(),
+            ], 500);
         }
-
-        $bid->status = 'rejected';
-        $bid->save();
-
-        return response()->json(['success' => true, 'message' => 'Bid rejected']);
     }
 }

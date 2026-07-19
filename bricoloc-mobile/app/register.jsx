@@ -5,6 +5,7 @@ import {
     KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../src/contexts/AuthContext';
 
 export default function Register() {
     const [firstName, setFirstName] = useState('');
@@ -18,57 +19,58 @@ export default function Register() {
     const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState('');
     const router = useRouter();
+    const { register } = useAuth();
 
     const cities = ['Douala', 'Yaounde', 'Bafoussam', 'Bamenda', 'Garoua', 'Maroua', 'Limbe', 'Kribi', 'Buea', 'Ebolowa'];
 
     const handleRegister = async () => {
         if (!firstName || !lastName || !email || !phone || !city || !password || !confirmPassword) {
-            window.alert('Please fill in all required fields');
+            setError('Please fill in all required fields');
             return;
         }
         if (password !== confirmPassword) {
-            window.alert('Passwords do not match');
+            setError('Passwords do not match');
             return;
         }
         if (password.length < 6) {
-            window.alert('Password must be at least 6 characters');
+            setError('Password must be at least 6 characters');
             return;
         }
 
         setLoading(true);
+        setError('');
+        setSuccess('');
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({
-                    first_name: firstName,
-                    last_name: lastName,
-                    email: email,
-                    phone_number: '+237' + phone,
-                    password: password,
-                    password_confirmation: confirmPassword,
-                    role: role,
-                    city: city,
-                }),
+            const result = await register({
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone_number: '+237' + phone,
+                password: password,
+                password_confirmation: confirmPassword,
+                role: role,
+                city: city,
             });
 
-            const data = await response.json();
             setLoading(false);
 
-            if (data.success) {
-                localStorage.setItem('auth_token', data.token);
-                localStorage.setItem('user_data', JSON.stringify(data.user));
-                window.alert('✅ Account created successfully!\n\nWelcome ' + data.user.name + '!\n\nYou will be redirected to the login page.');
-                setTimeout(() => { router.replace('/login'); }, 500);
+            if (result.success) {
+                setSuccess('Account created! Welcome ' + (result.user?.name || '') + '!');
+                const r = result.user?.role;
+                if (r === 'bricoleur') router.replace('/(bricoleur)/home');
+                else if (r === 'admin') router.replace('/(admin)/dashboard');
+                else router.replace('/home');
             } else {
-                const errorMsg = data.errors ? Object.values(data.errors).flat().join('\n') : (data.message || 'Unknown error');
-                window.alert('Error: ' + errorMsg);
+                const errorMsg = result.errors ? Object.values(result.errors).flat().join('\n') : (result.message || 'Unknown error');
+                setError(errorMsg);
             }
         } catch (error) {
             setLoading(false);
-            window.alert('Server connection error.\n\nMake sure Laravel is running: php artisan serve');
+            setError('Server connection error');
         }
     };
 
@@ -79,7 +81,7 @@ export default function Register() {
                 {/* Header */}
                 <View style={s.header}>
                     <TouchableOpacity onPress={() => router.back()} style={s.backBtn}>
-                        <Text style={s.backBtnText}></Text>
+                        <Text style={s.backBtnText}>← Back</Text>
                     </TouchableOpacity>
                     <View style={s.logoBox}>
                         <View style={s.logoIcon}><Text style={s.logoIconText}>BL</Text></View>
@@ -90,6 +92,17 @@ export default function Register() {
 
                 {/* Form Card */}
                 <View style={s.formCard}>
+
+                    {error ? (
+                        <View style={s.errorBanner}>
+                            <Text style={s.errorText}>❌ {error}</Text>
+                        </View>
+                    ) : null}
+                    {success ? (
+                        <View style={s.successBanner}>
+                            <Text style={s.successText}>✅ {success}</Text>
+                        </View>
+                    ) : null}
 
                     {/* Role Selector */}
                     <Text style={s.sectionLabel}>I AM A</Text>
@@ -216,6 +229,12 @@ const s = StyleSheet.create({
 
     // Form Card
     formCard: { backgroundColor: 'white', marginHorizontal: 20, borderRadius: 16, padding: 22, marginTop: -12, borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 },
+
+    // Banners
+    errorBanner: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 8, padding: 12, marginBottom: 14 },
+    errorText: { color: '#991B1B', fontSize: 13, textAlign: 'center' },
+    successBanner: { backgroundColor: '#F0FDF4', borderWidth: 1, borderColor: '#BBF7D0', borderRadius: 8, padding: 12, marginBottom: 14 },
+    successText: { color: '#166534', fontSize: 13, textAlign: 'center' },
 
     // Section
     sectionLabel: { fontSize: 10, fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: 1.2, marginBottom: 10, marginTop: 4 },

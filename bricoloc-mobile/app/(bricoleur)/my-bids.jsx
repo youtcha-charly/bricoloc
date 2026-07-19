@@ -1,22 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from 'expo-router';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { bidsAPI } from '../../src/services/api';
 
 export default function MyBids() {
     const router = useRouter();
+    const { user, logout } = useAuth();
     const [bids, setBids] = useState([]);
     const [loading, setLoading] = useState(true);
-
-    const getToken = () => localStorage.getItem('auth_token');
 
     const fetchBids = async () => {
         setLoading(true);
         try {
-            const token = getToken();
-            const response = await fetch('http://127.0.0.1:8000/api/v1/my-bids', {
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-            });
-            const data = await response.json();
+            const res = await bidsAPI.myBids();
+            const data = res.data;
             if (data.success) {
                 setBids(data.data || []);
             }
@@ -26,7 +25,7 @@ export default function MyBids() {
         setLoading(false);
     };
 
-    useEffect(() => { fetchBids(); }, []);
+    useFocusEffect(useCallback(() => { fetchBids(); }, []));
 
     const getStatusStyle = (status) => {
         switch (status) {
@@ -35,6 +34,11 @@ export default function MyBids() {
             case 'rejected': return { bg: '#FEF2F2', text: '#991B1B', label: 'Rejected' };
             default: return { bg: '#F3F4F6', text: '#6B7280', label: status?.toUpperCase() || 'N/A' };
         }
+    };
+
+    const handleLogout = async () => {
+        await logout();
+        router.replace('/login');
     };
 
     return (
@@ -61,9 +65,25 @@ export default function MyBids() {
                     <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/chats')}>
                         <Text style={s.navIcon}>◉</Text><Text style={s.navLabel}>Messages</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/notifications')}>
+                        <Text style={s.navIcon}>🔔</Text><Text style={s.navLabel}>Notifications</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/profile')}>
                         <Text style={s.navIcon}>▣</Text><Text style={s.navLabel}>Profile</Text>
                     </TouchableOpacity>
+                </View>
+
+                <View style={s.navSep} />
+                <TouchableOpacity style={s.navItem} onPress={handleLogout}>
+                    <Text style={s.navIcon}>⇤</Text><Text style={[s.navLabel, { color: '#DC2626' }]}>Sign Out</Text>
+                </TouchableOpacity>
+
+                <View style={s.sideUser}>
+                    <View style={s.sideAvatar}><Text style={s.sideAvatarText}>{user?.name?.charAt(0) || 'H'}</Text></View>
+                    <View>
+                        <Text style={s.sideUserName}>{user?.name || 'Handyman'}</Text>
+                        <Text style={s.sideUserRole}>Bricoleur</Text>
+                    </View>
                 </View>
             </View>
 
@@ -127,19 +147,25 @@ const s = StyleSheet.create({
     root: { flex: 1, flexDirection: 'row', backgroundColor: '#F0FDF4' },
 
     // Sidebar
-    sidebar: { width: 200, backgroundColor: '#064E3B', paddingVertical: 24, paddingHorizontal: 16, justifyContent: 'flex-start' },
+    sidebar: { width: 200, backgroundColor: '#064E3B', paddingVertical: 24, paddingHorizontal: 16, justifyContent: 'space-between' },
     brand: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
     brandIcon: { width: 30, height: 30, backgroundColor: '#F59E0B', borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
     brandIconText: { color: '#064E3B', fontWeight: '700', fontSize: 13 },
     brandName: { color: '#ECFDF5', fontWeight: '600', fontSize: 15 },
     brandLabel: { color: '#6EE7B7', fontSize: 9, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 22, marginTop: 2 },
-    nav: {},
+    nav: { flex: 1 },
     navItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9, paddingHorizontal: 8, borderRadius: 6, marginBottom: 1, gap: 10 },
     navActive: { backgroundColor: '#065F46' },
     navIcon: { fontSize: 14, color: '#6EE7B7', width: 18, textAlign: 'center' },
     navIconActive: { color: '#F59E0B' },
     navLabel: { fontSize: 12, color: '#A7F3D0' },
     navLabelActive: { color: '#ECFDF5', fontWeight: '600' },
+    navSep: { borderTopWidth: 1, borderTopColor: '#065F46', marginVertical: 12 },
+    sideUser: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#065F46' },
+    sideAvatar: { width: 30, height: 30, backgroundColor: '#F59E0B', borderRadius: 6, justifyContent: 'center', alignItems: 'center' },
+    sideAvatarText: { color: '#064E3B', fontWeight: '700', fontSize: 12 },
+    sideUserName: { color: '#ECFDF5', fontSize: 12, fontWeight: '500' },
+    sideUserRole: { color: '#6EE7B7', fontSize: 10 },
 
     // Main
     main: { flex: 1, paddingHorizontal: 24, paddingTop: 20 },

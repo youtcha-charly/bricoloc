@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
 import {
-    View, Text, TextInput, TouchableOpacity, Alert,
+    View, Text, TextInput, TouchableOpacity,
     ActivityIndicator, StyleSheet, ScrollView,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { bidsAPI } from '../src/services/api';
 
 export default function SubmitBid() {
     const { jobId, jobTitle, jobBudget } = useLocalSearchParams();
@@ -12,48 +13,49 @@ export default function SubmitBid() {
     const [message, setMessage] = useState('');
     const [estimatedDays, setEstimatedDays] = useState('1');
     const [loading, setLoading] = useState(false);
+    const [statusType, setStatusType] = useState(null);
+    const [statusMsg, setStatusMsg] = useState('');
 
     const handleSubmit = async () => {
         if (!amount || parseInt(amount) < 1000) {
-            Alert.alert('Error', 'Please enter a valid amount (minimum 1,000 FCFA)');
+            setStatusType('error');
+            setStatusMsg('Please enter a valid amount (minimum 1,000 FCFA)');
             return;
         }
         if (!message || message.length < 10) {
-            Alert.alert('Error', 'Please write a message of at least 10 characters');
+            setStatusType('error');
+            setStatusMsg('Please write a message of at least 10 characters');
             return;
         }
 
+        setStatusType('info');
+        setStatusMsg('Submitting your offer...');
         setLoading(true);
         try {
-            const token = localStorage.getItem('auth_token');
-            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${jobId}/bids`, {
-                method: 'POST',
-                headers: {
-                    'Authorization': 'Bearer ' + token,
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                },
-                body: JSON.stringify({
-                    amount: parseInt(amount),
-                    message: message,
-                    estimated_days: parseInt(estimatedDays),
-                }),
+            const res = await bidsAPI.submit(jobId, {
+                amount: parseInt(amount),
+                message: message,
+                estimated_days: parseInt(estimatedDays),
             });
-            const data = await response.json();
             setLoading(false);
+            const data = res.data;
 
             if (data.success) {
-                Alert.alert(
-                    '✅ Offer Submitted Successfully!',
-                    `Your offer of ${parseInt(amount).toLocaleString()} FCFA has been sent to the client.\n\nThe client has been notified and will review your offer.`,
-                    [{ text: 'OK', onPress: () => router.back() }]
-                );
+                setStatusType('success');
+                setStatusMsg('Offer has been sent to client.');
+                setAmount('');
+                setMessage('');
+                setEstimatedDays('1');
+                setTimeout(() => router.back(), 3000);
             } else {
-                Alert.alert('Error', data.message || 'Could not submit offer');
+                setStatusType('error');
+                setStatusMsg(data.message || 'Could not submit offer');
             }
         } catch (error) {
             setLoading(false);
-            Alert.alert('Error', 'Server connection error. Make sure Laravel is running.');
+            setStatusType('error');
+            const msg = error?.response?.data?.message || error?.response?.data?.errors?.amount?.[0] || 'Server connection error';
+            setStatusMsg(msg);
         }
     };
 
@@ -140,6 +142,14 @@ export default function SubmitBid() {
                             <Text style={s.tipsText}>• Be polite and professional</Text>
                         </View>
 
+                        {statusType && (
+                            <View style={[s.statusBanner, statusType === 'error' && s.statusBannerError, statusType === 'info' && s.statusBannerInfo, statusType === 'success' && s.statusBannerSuccess]}>
+                                <Text style={[s.statusText, statusType === 'error' && s.statusTextError, statusType === 'info' && s.statusTextInfo, statusType === 'success' && s.statusTextSuccess]}>
+                                    {statusType === 'info' ? 'ℹ️ ' : statusType === 'success' ? '✅ ' : '❌ '}{statusMsg}
+                                </Text>
+                            </View>
+                        )}
+
                         <TouchableOpacity
                             style={[s.submitBtn, (!amount || !message) && s.submitBtnDisabled]}
                             onPress={handleSubmit}
@@ -217,6 +227,16 @@ const s = StyleSheet.create({
     tipsCard: { backgroundColor: '#FFFBEB', borderRadius: 10, padding: 14, borderWidth: 1, borderColor: '#FDE68A' },
     tipsTitle: { fontWeight: '600', color: '#B45309', marginBottom: 8, fontSize: 13 },
     tipsText: { color: '#92400E', fontSize: 12, lineHeight: 22 },
+
+    // Status banners
+    statusBanner: { borderRadius: 8, padding: 12, marginBottom: 14, borderWidth: 1 },
+    statusBannerInfo: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+    statusBannerSuccess: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+    statusBannerError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+    statusText: { fontSize: 13, lineHeight: 20 },
+    statusTextInfo: { color: '#1E40AF' },
+    statusTextSuccess: { color: '#166534' },
+    statusTextError: { color: '#991B1B' },
 
     // Submit
     submitBtn: { backgroundColor: '#059669', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 20 },

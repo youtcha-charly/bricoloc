@@ -8,6 +8,7 @@ use App\Models\BricoleurProfile;
 use App\Models\Job;
 use App\Models\Bid;
 use App\Models\Dispute;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 
 class AdminController extends Controller
@@ -105,6 +106,12 @@ class AdminController extends Controller
     public function deleteUser($id)
     {
         $user = User::findOrFail($id);
+
+        // Prevent admin from deleting themselves or other admins
+        if ($user->role === 'admin') {
+            return response()->json(['success' => false, 'message' => 'Cannot delete admin users'], 400);
+        }
+
         $user->delete();
 
         return response()->json(['success' => true, 'message' => 'User deleted']);
@@ -120,10 +127,20 @@ class AdminController extends Controller
     {
         $dispute = Dispute::findOrFail($id);
         $dispute->status = 'resolved';
-        $dispute->resolution = $request->resolution;
+        $dispute->resolution = $request->input('resolution', 'Resolved by admin');
         $dispute->resolved_at = now();
         $dispute->save();
 
         return response()->json(['success' => true, 'message' => 'Dispute resolved']);
+    }
+
+    public function jobs(Request $request)
+    {
+        $jobs = Job::with(['client', 'category'])
+            ->withCount('bids')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json(['success' => true, 'data' => $jobs]);
     }
 }

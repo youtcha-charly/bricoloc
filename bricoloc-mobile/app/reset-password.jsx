@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { authAPI } from '../src/services/api';
 
 export default function ResetPassword() {
     const { token, email } = useLocalSearchParams();
@@ -11,41 +12,43 @@ export default function ResetPassword() {
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirm, setShowConfirm] = useState(false);
     const [success, setSuccess] = useState(false);
+    const [error, setError] = useState('');
 
     const handleReset = async () => {
         if (!password || !confirmPassword) {
-            window.alert('Please fill in all fields');
+            setError('Please fill in all fields');
             return;
         }
         if (password.length < 6) {
-            window.alert('Password must be at least 6 characters');
+            setError('Password must be at least 6 characters');
             return;
         }
         if (password !== confirmPassword) {
-            window.alert('Passwords do not match');
+            setError('Passwords do not match');
             return;
         }
 
         setLoading(true);
+        setError('');
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/auth/reset-password', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-                body: JSON.stringify({ token, email, password, password_confirmation: confirmPassword }),
+            const res = await authAPI.resetPassword({
+                token,
+                email,
+                password,
+                password_confirmation: confirmPassword,
             });
-
-            const data = await response.json();
+            const data = res.data;
             setLoading(false);
 
             if (data.success) {
                 setSuccess(true);
             } else {
-                window.alert(data.message || 'Error resetting password');
+                setError(data.message || 'Error resetting password');
             }
         } catch (error) {
             setLoading(false);
-            window.alert('Server connection error');
+            setError(error?.response?.data?.message || 'Server connection error');
         }
     };
 
@@ -62,6 +65,12 @@ export default function ResetPassword() {
                     <>
                         <Text style={s.title}>Reset Password</Text>
                         <Text style={s.subtitle}>Enter your new password below.</Text>
+
+                        {error ? (
+                            <View style={s.errorBanner}>
+                                <Text style={s.errorText}>❌ {error}</Text>
+                            </View>
+                        ) : null}
 
                         <Text style={s.label}>New Password</Text>
                         <View style={s.inputRow}>
@@ -120,6 +129,8 @@ const s = StyleSheet.create({
     title: { fontSize: 22, fontWeight: '700', color: '#1A1A1A', marginBottom: 6, textAlign: 'center' },
     subtitle: { fontSize: 13, color: '#6B7280', marginBottom: 24, textAlign: 'center', lineHeight: 20 },
     successIcon: { fontSize: 48, textAlign: 'center', marginBottom: 16 },
+    errorBanner: { backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FECACA', borderRadius: 8, padding: 12, marginBottom: 16 },
+    errorText: { color: '#991B1B', fontSize: 13, textAlign: 'center' },
     label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 14, textTransform: 'uppercase', letterSpacing: 0.5 },
     inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 10, paddingHorizontal: 14 },
     inputFull: { flex: 1, paddingVertical: 12, fontSize: 15, color: '#111827' },

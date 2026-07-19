@@ -11,11 +11,10 @@ class Dispute extends Model
 
     protected $fillable = [
         'job_id',
-        'raised_by',
+        'raised_by_id',
         'reason',
         'status',
         'resolution',
-        'resolved_by',
         'resolved_at',
     ];
 
@@ -26,11 +25,6 @@ class Dispute extends Model
 
     public function raisedBy()
     {
-        return $this->belongsTo(User::class, 'raised_by');
-    }
-
-    public function resolvedBy()
-    {
-        return $this->belongsTo(User::class, 'resolved_by');
+        return $this->belongsTo(User::class, 'raised_by_id');
     }
 }

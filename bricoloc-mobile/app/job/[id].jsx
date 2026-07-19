@@ -1,18 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, ScrollView, TouchableOpacity, Alert,
-    StyleSheet, ActivityIndicator,
+    StyleSheet, ActivityIndicator, Modal, TextInput,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { jobsAPI, bidsAPI, chatsAPI } from '../../src/services/api';
 
 export default function JobDetail() {
     const { id } = useLocalSearchParams();
     const router = useRouter();
+    const { user } = useAuth();
     const [job, setJob] = useState(null);
     const [bids, setBids] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [confirmModal, setConfirmModal] = useState({ visible: false, title: '', message: '', onConfirm: null, destructive: false });
 
-    const getToken = () => localStorage.getItem('auth_token');
+    // Chat modal state
+    const [chatVisible, setChatVisible] = useState(false);
+    const [chatId, setChatId] = useState(null);
+    const [chatMessages, setChatMessages] = useState([]);
+    const [chatInput, setChatInput] = useState('');
+    const [chatLoading, setChatLoading] = useState(false);
+    const [sending, setSending] = useState(false);
+    const chatScrollRef = useRef(null);
 
     useEffect(() => {
         fetchJobDetail();
@@ -21,11 +32,8 @@ export default function JobDetail() {
     const fetchJobDetail = async () => {
         setLoading(true);
         try {
-            const token = getToken();
-            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${id}`, {
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-            });
-            const data = await response.json();
+            const res = await jobsAPI.get(id);
+            const data = res.data;
             if (data.success) {
                 setJob(data.data);
                 setBids(data.data.bids || []);
@@ -36,97 +44,120 @@ export default function JobDetail() {
         setLoading(false);
     };
 
+    const showConfirm = (title, message, onConfirm, destructive = false) => {
+        setConfirmModal({ visible: true, title, message, onConfirm, destructive });
+    };
+
     const handleAcceptBid = (bidId) => {
-        Alert.alert(
+        showConfirm(
             'Accept Offer',
             'Are you sure? All other offers will be automatically rejected.',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Accept',
-                    onPress: async () => {
-                        try {
-                            const token = getToken();
-                            const response = await fetch(`http://127.0.0.1:8000/api/v1/bids/${bidId}/accept`, {
-                                method: 'PUT',
-                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                            });
-                            const data = await response.json();
-                            if (data.success) {
-                                Alert.alert('✅ Offer Accepted', 'The bricoleur has been notified. You can now chat.');
-                                fetchJobDetail();
-                            } else {
-                                Alert.alert('Error', data.message || 'Could not accept bid');
-                            }
-                        } catch (err) {
-                            Alert.alert('Error', 'Server connection error');
+            async () => {
+                setConfirmModal({ ...confirmModal, visible: false });
+                try {
+                    const res = await bidsAPI.accept(bidId);
+                    const data = res.data;
+                    if (data.success) {
+                        const newChatId = data.data?.chat_id;
+                        const bricoleurName = data.data?.bricoleur_name || 'Bricoleur';
+                        await fetchJobDetail();
+                        if (newChatId) {
+                            openChat(newChatId, bricoleurName);
                         }
+                    } else {
+                        Alert.alert('Error', data.message || 'Could not accept bid');
                     }
-                },
-            ]
+                } catch (err) {
+                    const msg = err?.response?.data?.message || 'Server connection error';
+                    Alert.alert('Error', msg);
+                }
+            },
+            false
         );
+    };
+
+    const openChat = async (cId, name) => {
+        setChatId(cId);
+        setChatVisible(true);
+        setChatLoading(true);
+        try {
+            const res = await chatsAPI.get(cId);
+            const data = res.data;
+            if (data.success) {
+                setChatMessages(data.data?.messages || []);
+            }
+        } catch (err) {
+            console.log('Error loading chat:', err);
+            Alert.alert('Error', 'Could not load chat');
+        }
+        setChatLoading(false);
+    };
+
+    const sendChatMessage = async () => {
+        const text = chatInput.trim();
+        if (!text || sending) return;
+
+        setSending(true);
+        try {
+            await chatsAPI.sendMessage(chatId, text);
+            setChatInput('');
+            const res = await chatsAPI.get(chatId);
+            const data = res.data;
+            if (data.success) {
+                setChatMessages(data.data?.messages || []);
+            }
+        } catch (err) {
+            console.log('Error sending:', err);
+            Alert.alert('Error', 'Could not send message');
+        }
+        setSending(false);
     };
 
     const handleRejectBid = (bidId) => {
-        Alert.alert(
+        showConfirm(
             'Reject Offer',
             'Are you sure you want to reject this offer?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Reject',
-                    style: 'destructive',
-                    onPress: async () => {
-                        try {
-                            const token = getToken();
-                            const response = await fetch(`http://127.0.0.1:8000/api/v1/bids/${bidId}/reject`, {
-                                method: 'PUT',
-                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                            });
-                            const data = await response.json();
-                            if (data.success) {
-                                Alert.alert('❌ Offer Rejected');
-                                fetchJobDetail();
-                            } else {
-                                Alert.alert('Error', data.message || 'Could not reject bid');
-                            }
-                        } catch (err) {
-                            Alert.alert('Error', 'Server connection error');
-                        }
+            async () => {
+                setConfirmModal({ ...confirmModal, visible: false });
+                try {
+                    const res = await bidsAPI.reject(bidId);
+                    const data = res.data;
+                    if (data.success) {
+                        Alert.alert('Offer Rejected');
+                        fetchJobDetail();
+                    } else {
+                        Alert.alert('Error', data.message || 'Could not reject bid');
                     }
-                },
-            ]
+                } catch (err) {
+                    const msg = err?.response?.data?.message || 'Server connection error';
+                    Alert.alert('Error', msg);
+                }
+            },
+            true
         );
     };
 
-    const handleCompleteJob = async () => {
-        Alert.alert(
+    const handleCompleteJob = () => {
+        showConfirm(
             'Mark as Complete',
             'Has the work been finished?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Yes, Complete',
-                    onPress: async () => {
-                        try {
-                            const token = getToken();
-                            const response = await fetch(`http://127.0.0.1:8000/api/v1/jobs/${id}/complete`, {
-                                method: 'PUT',
-                                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                            });
-                            const data = await response.json();
-                            if (data.success) {
-                                Alert.alert('✅ Job Completed', 'The job has been marked as complete.');
-                                fetchJobDetail();
-                            } else {
-                                Alert.alert('Error', data.message || 'Could not complete job');
-                            }
-                        } catch (err) {
-                            Alert.alert('Error', 'Server connection error');
-                        }
+            async () => {
+                setConfirmModal({ ...confirmModal, visible: false });
+                try {
+                    const res = await jobsAPI.complete(id);
+                    const data = res.data;
+                    if (data.success) {
+                        Alert.alert('Job Completed', 'The job has been marked as complete.');
+                        fetchJobDetail();
+                    } else {
+                        Alert.alert('Error', data.message || 'Could not complete job');
                     }
-                },
-            ]
+                } catch (err) {
+                    const msg = err?.response?.data?.message || 'Server connection error';
+                    Alert.alert('Error', msg);
+                }
+            },
+            false
         );
     };
 
@@ -170,10 +201,105 @@ export default function JobDetail() {
     }
 
     const jobSt = getJobStatusStyle(job.status);
+    const acceptedBid = bids.find(b => b.status === 'accepted');
 
     return (
         <View style={s.container}>
-            {/* Header */}
+            {/* Confirm Modal */}
+            <Modal visible={confirmModal.visible} transparent animationType="fade">
+                <View style={s.modalOverlay}>
+                    <View style={s.modalBox}>
+                        <Text style={s.modalTitle}>{confirmModal.title}</Text>
+                        <Text style={s.modalMessage}>{confirmModal.message}</Text>
+                        <View style={s.modalActions}>
+                            <TouchableOpacity style={s.modalCancelBtn} onPress={() => setConfirmModal({ ...confirmModal, visible: false })}>
+                                <Text style={s.modalCancelText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[s.modalConfirmBtn, confirmModal.destructive && s.modalConfirmDanger]}
+                                onPress={confirmModal.onConfirm}
+                            >
+                                <Text style={s.modalConfirmText}>Confirm</Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* ========== CHAT MODAL ========== */}
+            <Modal visible={chatVisible} animationType="slide">
+                <View style={s.chatContainer}>
+                    <View style={s.chatHeader}>
+                        <TouchableOpacity onPress={() => setChatVisible(false)}>
+                            <Text style={s.chatBackBtn}>← Back</Text>
+                        </TouchableOpacity>
+                        <Text style={s.chatHeaderTitle}>💬 {job.title}</Text>
+                        <View style={{ width: 50 }} />
+                    </View>
+
+                    {chatLoading ? (
+                        <View style={s.chatLoadingWrap}>
+                            <ActivityIndicator size="large" color="#D9A441" />
+                            <Text style={{ marginTop: 10, color: '#6B7280' }}>Loading messages...</Text>
+                        </View>
+                    ) : (
+                        <ScrollView
+                            ref={chatScrollRef}
+                            style={s.chatMessages}
+                            contentContainerStyle={{ padding: 16, paddingBottom: 8 }}
+                            onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: false })}
+                            onLayout={() => chatScrollRef.current?.scrollToEnd({ animated: false })}
+                        >
+                            {chatMessages.length === 0 ? (
+                                <View style={s.chatEmpty}>
+                                    <Text style={s.chatEmptyIcon}>💬</Text>
+                                    <Text style={s.chatEmptyText}>Start the conversation</Text>
+                                    <Text style={s.chatEmptySub}>Send a message to {acceptedBid?.bricoleur?.name || 'the bricoleur'}</Text>
+                                </View>
+                            ) : (
+                                chatMessages.map(msg => {
+                                    const isMe = msg.sender_id === user?.id || msg.sender?.id === user?.id;
+                                    return (
+                                        <View key={msg.id} style={[s.chatMsgWrap, isMe ? s.chatMsgRight : s.chatMsgLeft]}>
+                                            {!isMe && msg.sender?.name && (
+                                                <Text style={s.chatSenderName}>{msg.sender.name}</Text>
+                                            )}
+                                            <View style={[s.chatBubble, isMe ? s.chatBubbleMe : s.chatBubbleThem]}>
+                                                <Text style={[s.chatBubbleText, isMe && s.chatBubbleTextMe]}>{msg.message}</Text>
+                                            </View>
+                                            <Text style={[s.chatMsgTime, isMe && s.chatMsgTimeMe]}>
+                                                {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </Text>
+                                        </View>
+                                    );
+                                })
+                            )}
+                        </ScrollView>
+                    )}
+
+                    <View style={s.chatInputRow}>
+                        <TextInput
+                            style={s.chatInput}
+                            placeholder="Type a message..."
+                            placeholderTextColor="#9CA3AF"
+                            value={chatInput}
+                            onChangeText={setChatInput}
+                            returnKeyType="send"
+                            onSubmitEditing={sendChatMessage}
+                            editable={!sending}
+                        />
+                        <TouchableOpacity
+                            style={[s.chatSendBtn, (!chatInput.trim() || sending) && { opacity: 0.5 }]}
+                            onPress={sendChatMessage}
+                            disabled={!chatInput.trim() || sending}
+                        >
+                            <Text style={s.chatSendBtnText}>{sending ? '...' : 'Send'}</Text>
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* ========== JOB DETAIL ========== */}
             <View style={s.header}>
                 <TouchableOpacity onPress={() => router.back()}>
                     <Text style={s.backBtn}>← Back</Text>
@@ -185,7 +311,6 @@ export default function JobDetail() {
             </View>
 
             <ScrollView style={s.content} showsVerticalScrollIndicator={false}>
-                {/* Job Info Card */}
                 <View style={s.jobCard}>
                     <View style={s.jobHeader}>
                         <Text style={s.jobTitle}>{job.title}</Text>
@@ -202,17 +327,24 @@ export default function JobDetail() {
                         {job.client && <Text style={s.jobClient}>👤 {job.client.name}</Text>}
                     </View>
 
-                    {/* Chat Button */}
-                    {job.status === 'assigned' && (
-                        <TouchableOpacity 
-                            style={[s.chatBtn]} 
-                            onPress={() => router.push(`/chat/${job.id}`)}
+                    {/* Chat with Bricoleur button */}
+                    {(job.status === 'assigned' || job.status === 'in_progress') && acceptedBid && (
+                        <TouchableOpacity
+                            style={s.chatBtn}
+                            onPress={() => {
+                                const cId = job.chat?.id;
+                                if (cId) {
+                                    const name = acceptedBid.bricoleur?.name || 'Bricoleur';
+                                    openChat(cId, name);
+                                } else {
+                                    Alert.alert('No Chat', 'Chat room not found. Try refreshing.');
+                                }
+                            }}
                         >
-                            <Text style={s.chatBtnText}>💬 Chat with Bricoleur</Text>
+                            <Text style={s.chatBtnText}>💬 Chat with {acceptedBid.bricoleur?.name || 'Bricoleur'}</Text>
                         </TouchableOpacity>
                     )}
 
-                    {/* Complete Button */}
                     {(job.status === 'assigned' || job.status === 'in_progress') && (
                         <TouchableOpacity style={s.completeBtn} onPress={handleCompleteJob}>
                             <Text style={s.completeBtnText}>✅ Mark as Complete</Text>
@@ -220,7 +352,6 @@ export default function JobDetail() {
                     )}
                 </View>
 
-                {/* Bids Section */}
                 <Text style={s.sectionTitle}>📋 Offers Received ({bids.length})</Text>
 
                 {bids.length === 0 ? (
@@ -240,9 +371,7 @@ export default function JobDetail() {
                                             <Text style={s.avatarText}>{(bricoleur.name || '?').charAt(0)}</Text>
                                         </View>
                                         <View style={{ flex: 1 }}>
-                                            <View style={s.nameRow}>
-                                                <Text style={s.bricoleurName}>{bricoleur.name || 'Unknown'}</Text>
-                                            </View>
+                                            <Text style={s.bricoleurName}>{bricoleur.name || 'Unknown'}</Text>
                                             <Text style={s.bricoleurCity}>📍 {bricoleur.city || 'N/A'}</Text>
                                         </View>
                                     </View>
@@ -264,7 +393,6 @@ export default function JobDetail() {
                                     <Text style={s.bidDate}>📅 {bid.created_at ? new Date(bid.created_at).toLocaleString() : 'N/A'}</Text>
                                 </View>
 
-                                {/* Accept/Reject Buttons */}
                                 {bid.status === 'pending' && job.status === 'open' && (
                                     <View style={s.actionRow}>
                                         <TouchableOpacity style={s.acceptBtn} onPress={() => handleAcceptBid(bid.id)}>
@@ -297,6 +425,58 @@ const s = StyleSheet.create({
     refreshBtn: { color: 'white', fontSize: 20 },
     content: { flex: 1, paddingHorizontal: 14 },
 
+    // Modal
+    modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
+    modalBox: { backgroundColor: 'white', borderRadius: 14, padding: 24, width: '100%', maxWidth: 400 },
+    modalTitle: { fontSize: 18, fontWeight: '700', color: '#1A1A1A', marginBottom: 8 },
+    modalMessage: { fontSize: 14, color: '#6B7280', lineHeight: 20, marginBottom: 20 },
+    modalActions: { flexDirection: 'row', gap: 10 },
+    modalCancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#F3F4F6', alignItems: 'center' },
+    modalCancelText: { color: '#6B7280', fontWeight: '600', fontSize: 14 },
+    modalConfirmBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: '#059669', alignItems: 'center' },
+    modalConfirmDanger: { backgroundColor: '#DC2626' },
+    modalConfirmText: { color: 'white', fontWeight: '600', fontSize: 14 },
+
+    // Chat Modal
+    chatContainer: { flex: 1, backgroundColor: '#F4F6F6' },
+    chatHeader: {
+        flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+        backgroundColor: '#0B3D3E', paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12,
+    },
+    chatBackBtn: { color: 'white', fontSize: 16 },
+    chatHeaderTitle: { color: 'white', fontSize: 16, fontWeight: 'bold', flex: 1, textAlign: 'center' },
+    chatLoadingWrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    chatMessages: { flex: 1 },
+    chatEmpty: { alignItems: 'center', paddingTop: 80 },
+    chatEmptyIcon: { fontSize: 40, marginBottom: 10 },
+    chatEmptyText: { fontSize: 16, fontWeight: '600', color: '#374151' },
+    chatEmptySub: { fontSize: 12, color: '#9CA3AF', marginTop: 4 },
+    chatMsgWrap: { marginBottom: 10, maxWidth: '80%' },
+    chatMsgRight: { alignSelf: 'flex-end' },
+    chatMsgLeft: { alignSelf: 'flex-start' },
+    chatSenderName: { fontSize: 10, color: '#6B7280', marginBottom: 2, marginLeft: 4 },
+    chatBubble: { padding: 12, borderRadius: 14 },
+    chatBubbleMe: { backgroundColor: '#D9A441', borderBottomRightRadius: 4 },
+    chatBubbleThem: { backgroundColor: 'white', borderWidth: 1, borderColor: '#E5E7EB', borderBottomLeftRadius: 4 },
+    chatBubbleText: { fontSize: 14, color: '#1A1A1A', lineHeight: 20 },
+    chatBubbleTextMe: { color: '#0B3D3E' },
+    chatMsgTime: { fontSize: 10, color: '#9CA3AF', marginTop: 3, marginLeft: 4 },
+    chatMsgTimeMe: { textAlign: 'right', marginRight: 4 },
+    chatInputRow: {
+        flexDirection: 'row', padding: 12, paddingBottom: 14,
+        backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#E5E7EB', gap: 8,
+    },
+    chatInput: {
+        flex: 1, backgroundColor: '#F9FAFB', borderRadius: 20,
+        paddingHorizontal: 16, paddingVertical: 10, fontSize: 14, color: '#1A1A1A',
+        borderWidth: 1, borderColor: '#E5E7EB',
+    },
+    chatSendBtn: {
+        backgroundColor: '#D9A441', borderRadius: 20, paddingHorizontal: 22,
+        justifyContent: 'center', alignItems: 'center',
+    },
+    chatSendBtnText: { color: '#0B3D3E', fontWeight: '700', fontSize: 14 },
+
     // Job Card
     jobCard: { backgroundColor: 'white', borderRadius: 14, padding: 16, marginTop: 14, borderWidth: 1, borderColor: '#E5E7EB' },
     jobHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 },
@@ -325,7 +505,6 @@ const s = StyleSheet.create({
     bricoleurInfo: { flexDirection: 'row', flex: 1, alignItems: 'center' },
     avatar: { width: 40, height: 40, backgroundColor: '#D9A441', borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 10 },
     avatarText: { color: '#0B3D3E', fontSize: 16, fontWeight: 'bold' },
-    nameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     bricoleurName: { fontSize: 14, fontWeight: '600', color: '#1A1A1A' },
     bricoleurCity: { fontSize: 11, color: '#9CA3AF', marginTop: 2 },
     bidStatus: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },

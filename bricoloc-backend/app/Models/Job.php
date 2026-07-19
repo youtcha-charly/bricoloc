@@ -9,13 +9,15 @@ class Job extends Model
 {
     use HasFactory;
 
-    protected $table = 'jobs_table';
+
+    protected $table = 'job_postings';
 
     protected $fillable = [
         'client_id',
         'category_id',
         'title',
         'description',
+        'photo_url',
         'budget_min',
         'budget_max',
         'budget_type',
@@ -42,6 +44,11 @@ class Job extends Model
     public function bids()
     {
         return $this->hasMany(Bid::class);
+    }
+
+    public function chat()
+    {
+        return $this->hasOne(Chat::class);
     }
 
     public function reviews()

@@ -18,6 +18,8 @@ export default function RootLayout() {
                     <Stack.Screen name="post-job" options={{ headerShown: false }} />
                     <Stack.Screen name="profile" options={{ headerShown: false }} />
                     <Stack.Screen name="chat/[id]" options={{ headerShown: false }} />
+                    <Stack.Screen name="chats" options={{ headerShown: false }} />
+                    <Stack.Screen name="notifications" options={{ headerShown: false }} />
                     <Stack.Screen name="submit-bid" options={{ headerShown: false }} />
                     <Stack.Screen name="(admin)" options={{ headerShown: false }} />
                     <Stack.Screen name="(bricoleur)" options={{ headerShown: false }} />

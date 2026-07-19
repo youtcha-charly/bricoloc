@@ -12,12 +12,30 @@ class NotificationController extends Controller
     {
         $notifications = Notification::where('user_id', $request->user()->id)
             ->orderBy('created_at', 'desc')
-            ->limit(20)
+            ->limit(50)
             ->get();
 
         return response()->json([
             'success' => true,
             'data' => $notifications,
         ]);
+    }
+
+    public function markAsRead(Request $request, $id)
+    {
+        $notification = Notification::where('user_id', $request->user()->id)->findOrFail($id);
+        $notification->is_read = true;
+        $notification->save();
+
+        return response()->json(['success' => true, 'message' => 'Notification marked as read']);
+    }
+
+    public function markAllAsRead(Request $request)
+    {
+        Notification::where('user_id', $request->user()->id)
+            ->where('is_read', false)
+            ->update(['is_read' => true]);
+
+        return response()->json(['success' => true, 'message' => 'All notifications marked as read']);
     }
 }

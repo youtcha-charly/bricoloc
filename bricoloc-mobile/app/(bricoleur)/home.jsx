@@ -1,76 +1,57 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { useRouter } from 'expo-router';
+import React, { useState, useCallback } from 'react';
+import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { jobsAPI, bidsAPI, getJobPhotoUrl } from '../../src/services/api';
 
 export default function BricoleurHome() {
     const router = useRouter();
+    const { user, logout } = useAuth();
     const [activeFilter, setActiveFilter] = useState('All');
     const [isAvailable, setIsAvailable] = useState(true);
     const [loading, setLoading] = useState(true);
     const [jobs, setJobs] = useState([]);
-    const [user, setUser] = useState(null);
     const [stats, setStats] = useState({ rating: 0, completed: 0, bids: 0 });
+    const [bidJobIds, setBidJobIds] = useState(new Set());
 
     const categories = ['All', 'Plumbing', 'Electrical', 'Painting', 'Carpentry', 'AC Repair', 'Cleaning', 'Moving'];
 
-    const getToken = () => localStorage.getItem('auth_token');
-
-    useEffect(() => {
-        const userData = localStorage.getItem('user_data');
-        if (userData) setUser(JSON.parse(userData));
-        loadData();
-    }, []);
+    useFocusEffect(
+        useCallback(() => {
+            loadData();
+        }, [])
+    );
 
     const loadData = async () => {
         setLoading(true);
         try {
-            const token = getToken();
-            
-            // Fetch available jobs
-            const res = await fetch('http://127.0.0.1:8000/api/v1/jobs', {
-                headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-            });
-            const data = await res.json();
-            
-            if (data.success) {
-                const jobList = data.data?.data || data.data || [];
+            const [jobsRes, bidsRes] = await Promise.all([
+                jobsAPI.list(),
+                bidsAPI.myBids(),
+            ]);
+
+            if (jobsRes.data.success) {
+                const jobList = jobsRes.data.data?.data || jobsRes.data.data || [];
                 const jobsArray = Array.isArray(jobList) ? jobList : [];
-                // Only show open jobs
-                const openJobs = jobsArray.filter(j => j.status === 'open');
-                setJobs(openJobs);
-            } else {
-                setJobs([]);
+                setJobs(jobsArray.filter(j => j.status === 'open'));
             }
 
-            // Fetch my bids for stats
-            try {
-                const bidsRes = await fetch('http://127.0.0.1:8000/api/v1/my-bids', {
-                    headers: { 'Authorization': 'Bearer ' + token, 'Accept': 'application/json' },
-                });
-                const bidsData = await bidsRes.json();
-                if (bidsData.success) {
-                    const bidsList = bidsData.data || [];
-                    const accepted = bidsList.filter(b => b.status === 'accepted').length;
-                    const pending = bidsList.filter(b => b.status === 'pending').length;
-                    setStats({
-                        rating: 0,
-                        completed: accepted,
-                        bids: pending,
-                    });
-                }
-            } catch (err) {
-                console.log('Error fetching bids:', err);
+            if (bidsRes.data.success) {
+                const bidsList = bidsRes.data.data || [];
+                const accepted = bidsList.filter(b => b.status === 'accepted').length;
+                const pending = bidsList.filter(b => b.status === 'pending').length;
+                setStats({ rating: 0, completed: accepted, bids: pending });
+                setBidJobIds(new Set(bidsList.map(b => b.job_id)));
             }
-        } catch (err) { 
-            console.log('Error loading jobs:', err); 
+        } catch (err) {
+            console.log('Error loading data:', err);
             setJobs([]);
         }
         setLoading(false);
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_data');
+    const handleLogout = async () => {
+        await logout();
         router.replace('/login');
     };
 
@@ -101,6 +82,9 @@ export default function BricoleurHome() {
                     </TouchableOpacity>
                     <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/chats')}>
                         <Text style={s.navIcon}>◉</Text><Text style={s.navLabel}>Messages</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/notifications')}>
+                        <Text style={s.navIcon}>🔔</Text><Text style={s.navLabel}>Notifications</Text>
                     </TouchableOpacity>
                     <TouchableOpacity style={s.navItem} onPress={() => router.push('/(bricoleur)/profile')}>
                         <Text style={s.navIcon}>▣</Text><Text style={s.navLabel}>Profile</Text>
@@ -187,41 +171,60 @@ export default function BricoleurHome() {
                             <Text style={s.emptyDesc}>Check back later or adjust your filters.</Text>
                         </View>
                     ) : (
-                        filteredJobs.map((job, index) => (
-                            <TouchableOpacity
-                                key={job.id || index}
-                                style={s.jobCard}
-                                onPress={() => router.push({
-                                    pathname: '/submit-bid',
-                                    params: { jobId: job.id, jobTitle: job.title, jobBudget: job.budget_max || 'N/A' }
-                                })}
-                            >
-                                <View style={s.jobHeader}>
-                                    <View style={s.jobTitleRow}>
-                                        <View style={[s.jobCatDot, { backgroundColor: '#059669' }]} />
-                                        <Text style={s.jobTitle}>{job.title || 'Untitled'}</Text>
-                                    </View>
-                                    <Text style={s.jobBudget}>{job.budget_max ? job.budget_max.toLocaleString() : '0'} FCFA</Text>
-                                </View>
-                                <View style={s.jobMeta}>
-                                    <Text style={s.jobMetaText}>📂 {job.category?.name || 'General'}</Text>
-                                    <Text style={s.jobMetaText}>📍 {job.city || 'N/A'}</Text>
-                                    <Text style={s.jobMetaText}>💬 {job.bids_count || 0} bids</Text>
-                                </View>
-                                <View style={s.jobFooter}>
-                                    <Text style={s.jobDesc} numberOfLines={2}>{job.description || 'No description'}</Text>
-                                    <TouchableOpacity
-                                        style={s.bidBtn}
-                                        onPress={() => router.push({
+                        filteredJobs.map((job, index) => {
+                            const hasBid = bidJobIds.has(job.id);
+                            return (
+                                <TouchableOpacity
+                                    key={job.id || index}
+                                    style={[s.jobCard, hasBid && s.jobCardBid]}
+                                    activeOpacity={hasBid ? 1 : 0.7}
+                                    onPress={() => {
+                                        if (!hasBid) router.push({
                                             pathname: '/submit-bid',
                                             params: { jobId: job.id, jobTitle: job.title, jobBudget: job.budget_max || 'N/A' }
-                                        })}
-                                    >
-                                        <Text style={s.bidBtnText}>Submit Offer →</Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </TouchableOpacity>
-                        ))
+                                        });
+                                    }}
+                                >
+                                    {job.photo_url && (
+                                        <Image
+                                            source={{ uri: getJobPhotoUrl(job.photo_url) }}
+                                            style={s.jobPhoto}
+                                            resizeMode="cover"
+                                        />
+                                    )}
+                                    <View style={s.jobHeader}>
+                                        <View style={s.jobTitleRow}>
+                                            <View style={[s.jobCatDot, { backgroundColor: hasBid ? '#F59E0B' : '#059669' }]} />
+                                            <Text style={s.jobTitle}>{job.title || 'Untitled'}</Text>
+                                        </View>
+                                        <Text style={s.jobBudget}>{job.budget_max ? job.budget_max.toLocaleString() : '0'} FCFA</Text>
+                                    </View>
+                                    <View style={s.jobMeta}>
+                                        <Text style={s.jobMetaText}>📂 {job.category?.name || 'General'}</Text>
+                                        <Text style={s.jobMetaText}>📍 {job.city || 'N/A'}</Text>
+                                        <Text style={s.jobMetaText}>💬 {job.bids_count || 0} bids</Text>
+                                    </View>
+                                    <View style={s.jobFooter}>
+                                        <Text style={s.jobDesc} numberOfLines={2}>{job.description || 'No description'}</Text>
+                                        {hasBid ? (
+                                            <View style={s.pendingBtn}>
+                                                <Text style={s.pendingBtnText}>⏳ Bid Pending</Text>
+                                            </View>
+                                        ) : (
+                                            <TouchableOpacity
+                                                style={s.bidBtn}
+                                                onPress={() => router.push({
+                                                    pathname: '/submit-bid',
+                                                    params: { jobId: job.id, jobTitle: job.title, jobBudget: job.budget_max || 'N/A' }
+                                                })}
+                                            >
+                                                <Text style={s.bidBtnText}>Submit Offer →</Text>
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })
                     )}
                     <View style={{ height: 40 }} />
                 </ScrollView>
@@ -279,7 +282,9 @@ const s = StyleSheet.create({
     emptyIcon: { fontSize: 40, marginBottom: 8 },
     emptyTitle: { fontSize: 15, fontWeight: '600', color: '#064E3B' },
     emptyDesc: { fontSize: 12, color: '#6B7280', marginTop: 4 },
-    jobCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: '#D1FAE5' },
+    jobCard: { backgroundColor: '#FFFFFF', borderRadius: 12, padding: 16, marginBottom: 8, borderWidth: 1, borderColor: '#D1FAE5', overflow: 'hidden' },
+    jobCardBid: { borderColor: '#FDE68A', backgroundColor: '#FFFBEB' },
+    jobPhoto: { width: '100%', height: 160, borderRadius: 8, marginBottom: 12 },
     jobHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
     jobTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 },
     jobCatDot: { width: 8, height: 8, borderRadius: 4 },
@@ -291,4 +296,6 @@ const s = StyleSheet.create({
     jobDesc: { fontSize: 12, color: '#6B7280', flex: 1, marginRight: 12 },
     bidBtn: { backgroundColor: '#059669', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 },
     bidBtnText: { color: 'white', fontWeight: '600', fontSize: 12 },
+    pendingBtn: { backgroundColor: '#FDE68A', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 6 },
+    pendingBtnText: { color: '#92400E', fontWeight: '600', fontSize: 12 },
 });

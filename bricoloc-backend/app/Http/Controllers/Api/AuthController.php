@@ -7,6 +7,8 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -117,6 +119,7 @@ class AuthController extends Controller
             'email' => 'sometimes|email|unique:users,email,' . $user->id,
             'phone_number' => 'sometimes|string|min:9|max:20',
             'city' => 'sometimes|string|max:100',
+            'neighborhood' => 'nullable|string|max:100',
             'gender' => 'nullable|in:Male,Female,Other',
             'date_of_birth' => 'nullable|date',
         ]);
@@ -136,6 +139,7 @@ class AuthController extends Controller
             'email',
             'phone_number',
             'city',
+            'neighborhood',
             'gender',
             'date_of_birth',
         ]));
@@ -161,6 +165,73 @@ class AuthController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Logged out successfully',
+        ]);
+    }
+
+    /**
+     * Send password reset link
+     */
+    public function forgotPassword(Request $request)
+    {
+        $request->validate(['email' => 'required|email']);
+
+        $user = User::where('email', $request->email)->first();
+
+        if ($user) {
+            $token = Str::random(64);
+            DB::table('password_reset_tokens')->insert([
+                'email' => $request->email,
+                'token' => Hash::make($token),
+                'created_at' => now(),
+            ]);
+        }
+
+        // Always return success to prevent email enumeration
+        return response()->json([
+            'success' => true,
+            'message' => 'If an account exists with that email, a password reset link has been sent.',
+        ]);
+    }
+
+    /**
+     * Reset password
+     */
+    public function resetPassword(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email',
+            'token' => 'required|string',
+            'password' => 'required|string|min:6|confirmed',
+        ]);
+
+        $resetRecord = DB::table('password_reset_tokens')
+            ->where('email', $request->email)
+            ->first();
+
+        if (!$resetRecord || !Hash::check($request->token, $resetRecord->token)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid or expired reset token',
+            ], 400);
+        }
+
+        $user = User::where('email', $request->email)->first();
+        if (!$user) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found',
+            ], 400);
+        }
+
+        $user->password = Hash::make($request->password);
+        $user->save();
+
+        // Delete the reset token
+        DB::table('password_reset_tokens')->where('email', $request->email)->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Password has been reset successfully',
         ]);
     }
 }

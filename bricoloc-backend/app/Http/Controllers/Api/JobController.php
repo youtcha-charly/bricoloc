@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Job;
+use App\Models\Notification;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -20,12 +21,14 @@ class JobController extends Controller
     // Bricoleurs see all open jobs
     if ($user->role === 'bricoleur') {
         $jobs = Job::with('category')
+            ->withCount('bids')
             ->where('status', 'open')
             ->latest()
             ->get();
     } else {
         // CLIENT: Only return this client's jobs
-        $jobs = Job::with('category')
+        $jobs = Job::with(['category', 'chat'])
+            ->withCount('bids')
             ->where('client_id', $user->id)
             ->latest()
             ->get();
@@ -45,10 +48,19 @@ class JobController extends Controller
             'city' => 'required|string',
             'budget_min' => 'nullable|integer|min:0',
             'budget_max' => 'nullable|integer|min:0',
+            'photo' => 'nullable|image|max:5120',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $photoUrl = null;
+        if ($request->hasFile('photo')) {
+            $file = $request->file('photo');
+            $filename = 'job_' . time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+            $file->move(public_path('storage/jobs'), $filename);
+            $photoUrl = 'storage/jobs/' . $filename;
         }
 
         $job = Job::create([
@@ -56,6 +68,7 @@ class JobController extends Controller
             'category_id' => $request->category_id,
             'title' => $request->title,
             'description' => $request->description,
+            'photo_url' => $photoUrl,
             'budget_min' => $request->budget_min,
             'budget_max' => $request->budget_max,
             'budget_type' => 'fixed',
@@ -71,7 +84,7 @@ class JobController extends Controller
      */
     public function show($id)
     {
-        $job = Job::with(['category', 'client', 'bids.bricoleur'])
+        $job = Job::with(['category', 'client', 'bids.bricoleur', 'chat'])
             ->findOrFail($id);
 
         return response()->json([
@@ -140,6 +153,40 @@ class JobController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Job marked as completed',
+            'data' => $job,
+        ]);
+    }
+
+    /**
+     * Cancel a job (by client)
+     */
+    public function cancel(Request $request, $id)
+    {
+        $job = Job::where('client_id', $request->user()->id)->findOrFail($id);
+
+        if (!in_array($job->status, ['open', 'assigned'])) {
+            return response()->json([
+                'success' => false,
+                'message' => 'This job cannot be cancelled. Current status: ' . $job->status
+            ], 400);
+        }
+
+        $job->status = 'cancelled';
+        $job->save();
+
+        if ($job->hired_bricoleur_id) {
+            Notification::create([
+                'user_id' => $job->hired_bricoleur_id,
+                'title' => 'Job Cancelled',
+                'body' => 'The client has cancelled the job "' . $job->title . '".',
+                'type' => 'job_cancelled',
+                'data' => json_encode(['job_id' => $job->id]),
+            ]);
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Job cancelled',
             'data' => $job,
         ]);
     }

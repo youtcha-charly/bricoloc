@@ -20,9 +20,12 @@ class User extends Authenticatable
         'password',
         'role',
         'city',
+        'neighborhood',
         'country',
         'account_type',
         'status',
+        'gender',
+        'date_of_birth',
     ];
 
     protected $hidden = [
@@ -36,5 +39,15 @@ class User extends Authenticatable
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
         ];
+    }
+
+    public function reviewsGiven()
+    {
+        return $this->hasMany(Review::class, 'reviewer_id');
+    }
+
+    public function reviewsReceived()
+    {
+        return $this->hasMany(Review::class, 'reviewed_id');
     }
 }

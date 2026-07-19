@@ -1,17 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import {
-    View, Text, ScrollView, TouchableOpacity, TextInput,
-    Alert, StyleSheet, Modal, Image,
+    View, Text, ScrollView, TouchableOpacity, TextInput, Image,
+    StyleSheet, Modal, ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../../src/contexts/AuthContext';
+import { authAPI } from '../../src/services/api';
 import * as ImagePicker from 'expo-image-picker';
 
 export default function BricoleurProfile() {
     const router = useRouter();
-    const [user, setUser] = useState(null);
+    const { user, refreshUser, logout } = useAuth();
     const [isEditing, setIsEditing] = useState(false);
     const [showGenderPicker, setShowGenderPicker] = useState(false);
     const [showCityPicker, setShowCityPicker] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [statusType, setStatusType] = useState(null);
+    const [statusMsg, setStatusMsg] = useState('');
 
     const [profileImage, setProfileImage] = useState(null);
     const [firstName, setFirstName] = useState('');
@@ -31,19 +36,16 @@ export default function BricoleurProfile() {
     const skillsList = ['Plumbing', 'Electrical', 'Painting', 'Carpentry', 'AC Repair', 'Cleaning', 'Gardening', 'Moving', 'Tailoring', 'Phone Repair'];
 
     useEffect(() => {
-        const userData = localStorage.getItem('user_data');
-        if (userData) {
-            const u = JSON.parse(userData);
-            setUser(u);
-            setFirstName(u.first_name || '');
-            setLastName(u.last_name || '');
-            setEmail(u.email || '');
-            setPhone(u.phone_number?.replace('+237', '') || '');
-            setCity(u.city || 'Douala');
-            setGender(u.gender || 'Male');
-            setDateOfBirth(u.date_of_birth || '');
+        if (user) {
+            setFirstName(user.first_name || '');
+            setLastName(user.last_name || '');
+            setEmail(user.email || '');
+            setPhone((user.phone_number || '').replace('+237', ''));
+            setCity(user.city || 'Douala');
+            setGender(user.gender || 'Male');
+            setDateOfBirth(user.date_of_birth || '');
         }
-    }, []);
+    }, [user]);
 
     const pickImage = async () => {
         const result = await ImagePicker.launchImageLibraryAsync({
@@ -59,20 +61,42 @@ export default function BricoleurProfile() {
 
     const removeSkill = (skill) => setSkills(skills.filter(s => s !== skill));
 
-    const handleSave = () => {
-        setIsEditing(false);
-        const updatedUser = {
-            ...user, first_name: firstName, last_name: lastName,
-            name: firstName + ' ' + lastName, email, phone_number: '+237' + phone, city, gender, date_of_birth: dateOfBirth,
-        };
-        localStorage.setItem('user_data', JSON.stringify(updatedUser));
-        setUser(updatedUser);
-        Alert.alert('✅ Profile Updated', 'Your information has been saved.');
+    const handleSave = async () => {
+        setSaving(true);
+        setStatusType('info');
+        setStatusMsg('Saving profile...');
+        try {
+            const res = await authAPI.updateProfile({
+                first_name: firstName,
+                last_name: lastName,
+                email: email,
+                phone_number: '+237' + phone,
+                gender: gender,
+                date_of_birth: dateOfBirth,
+                city: city,
+                neighborhood: neighborhood,
+            });
+            const data = res.data;
+            if (data.success) {
+                await refreshUser();
+                setIsEditing(false);
+                setStatusType('success');
+                setStatusMsg('Profile updated successfully!');
+                setTimeout(() => { setStatusType(null); setStatusMsg(''); }, 4000);
+            } else {
+                setStatusType('error');
+                setStatusMsg(data.message || 'Could not update profile');
+            }
+        } catch (err) {
+            setStatusType('error');
+            const msg = err?.response?.data?.message || err?.response?.data?.errors?.email?.[0] || 'Server connection error';
+            setStatusMsg(msg);
+        }
+        setSaving(false);
     };
 
-    const handleLogout = () => {
-        localStorage.removeItem('auth_token');
-        localStorage.removeItem('user_data');
+    const handleLogout = async () => {
+        await logout();
         router.replace('/login');
     };
 
@@ -100,6 +124,9 @@ export default function BricoleurProfile() {
                     <TouchableOpacity style={p.navItem} onPress={() => router.push('/(bricoleur)/chats')}>
                         <Text style={p.navIcon}>◉</Text><Text style={p.navLabel}>Messages</Text>
                     </TouchableOpacity>
+                    <TouchableOpacity style={p.navItem} onPress={() => router.push('/(bricoleur)/notifications')}>
+                        <Text style={p.navIcon}>🔔</Text><Text style={p.navLabel}>Notifications</Text>
+                    </TouchableOpacity>
                     <TouchableOpacity style={[p.navItem, p.navActive]}>
                         <Text style={[p.navIcon, p.navIconActive]}>▣</Text><Text style={[p.navLabel, p.navLabelActive]}>Profile</Text>
                     </TouchableOpacity>
@@ -111,10 +138,10 @@ export default function BricoleurProfile() {
                 </TouchableOpacity>
 
                 <View style={p.sideUser}>
-                    <View style={p.sideAvatar}><Text style={p.sideAvatarText}>H</Text></View>
+                    <View style={p.sideAvatar}><Text style={p.sideAvatarText}>{user?.name?.charAt(0) || 'H'}</Text></View>
                     <View>
-                        <Text style={p.sideUserName}>Handyman</Text>
-                        <Text style={p.sideUserRole}>Available</Text>
+                        <Text style={p.sideUserName}>{user?.name || 'Handyman'}</Text>
+                        <Text style={p.sideUserRole}>Bricoleur</Text>
                     </View>
                 </View>
             </View>
@@ -125,7 +152,7 @@ export default function BricoleurProfile() {
                     <TouchableOpacity onPress={() => router.back()} style={p.backBtn}>
                         <Text style={p.backBtnText}>← Back</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
+                    <TouchableOpacity onPress={() => { setIsEditing(!isEditing); setStatusType(null); setStatusMsg(''); }}>
                         <Text style={p.editBtn}>{isEditing ? 'Cancel' : 'Edit'}</Text>
                     </TouchableOpacity>
                 </View>
@@ -157,6 +184,13 @@ export default function BricoleurProfile() {
                     {/* Personal Info */}
                     <View style={p.card}>
                         <Text style={p.sectionLabel}>PERSONAL INFORMATION</Text>
+                        {statusType && (
+                            <View style={[p.statusBanner, statusType === 'error' && p.statusBannerError, statusType === 'info' && p.statusBannerInfo, statusType === 'success' && p.statusBannerSuccess]}>
+                                <Text style={[p.statusText, statusType === 'error' && p.statusTextError, statusType === 'info' && p.statusTextInfo, statusType === 'success' && p.statusTextSuccess]}>
+                                    {statusType === 'info' ? 'ℹ️ ' : statusType === 'success' ? '✅ ' : '❌ '}{statusMsg}
+                                </Text>
+                            </View>
+                        )}
                         <View style={p.row}>
                             <View style={p.half}>
                                 <Text style={p.label}>First Name</Text>
@@ -226,8 +260,8 @@ export default function BricoleurProfile() {
 
                     {/* Save */}
                     {isEditing && (
-                        <TouchableOpacity style={p.saveBtn} onPress={handleSave}>
-                            <Text style={p.saveBtnText}>💾 Save Changes</Text>
+                        <TouchableOpacity style={p.saveBtn} onPress={handleSave} disabled={saving}>
+                            {saving ? <ActivityIndicator color="white" /> : <Text style={p.saveBtnText}>💾 Save Changes</Text>}
                         </TouchableOpacity>
                     )}
 
@@ -354,6 +388,14 @@ const p = StyleSheet.create({
     // Buttons
     saveBtn: { backgroundColor: '#059669', borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
     saveBtnText: { color: 'white', fontWeight: '600', fontSize: 14 },
+    statusBanner: { borderRadius: 8, padding: 12, marginBottom: 14, borderWidth: 1 },
+    statusBannerInfo: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+    statusBannerSuccess: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+    statusBannerError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+    statusText: { fontSize: 13, lineHeight: 20 },
+    statusTextInfo: { color: '#1E40AF' },
+    statusTextSuccess: { color: '#166534' },
+    statusTextError: { color: '#991B1B' },
     logoutBtn: { backgroundColor: 'white', borderRadius: 12, paddingVertical: 14, alignItems: 'center', marginTop: 8, borderWidth: 1, borderColor: '#FECACA' },
     logoutText: { color: '#EF4444', fontWeight: '600', fontSize: 14 },
 

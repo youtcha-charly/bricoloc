@@ -1,9 +1,15 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
-    View, Text, TextInput, TouchableOpacity, Alert,
+    View, Text, TextInput, TouchableOpacity, Image,
     ActivityIndicator, StyleSheet, ScrollView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { jobsAPI, IMAGE_BASE_URL } from '../src/services/api';
+
+const API_BASE = IMAGE_BASE_URL + 'api/v1';
+import Storage from '../src/services/storage';
 
 export default function PostJob() {
     const router = useRouter();
@@ -14,6 +20,10 @@ export default function PostJob() {
     const [budgetMax, setBudgetMax] = useState('');
     const [city, setCity] = useState('');
     const [loading, setLoading] = useState(false);
+    const [photo, setPhoto] = useState(null);
+    const [photoPreview, setPhotoPreview] = useState(null);
+    const [statusType, setStatusType] = useState(null);
+    const [statusMsg, setStatusMsg] = useState('');
 
     const categories = [
         { id: '1', name: 'Plumbing', icon: '🔧' },
@@ -22,59 +32,98 @@ export default function PostJob() {
         { id: '4', name: 'Carpentry', icon: '🪚' },
         { id: '5', name: 'AC Repair', icon: '❄️' },
         { id: '6', name: 'Cleaning', icon: '🧹' },
+        { id: '7', name: 'Moving', icon: '📦' },
+        { id: '8', name: 'Gardening', icon: '🌿' },
     ];
 
-    const cities = ['Douala', 'Yaounde', 'Bafoussam', 'Bamenda', 'Garoua', 'Limbe', 'Kribi'];
+    const cities = ['Douala', 'Yaounde', 'Bafoussam', 'Bamenda', 'Garoua', 'Maroua', 'Limbe', 'Kribi', 'Buea', 'Ebolowa'];
+
+    const pickImage = async () => {
+        const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.8,
+        });
+        if (!result.canceled) {
+            setPhoto(result.assets[0]);
+            setPhotoPreview(result.assets[0].uri);
+        }
+    };
+
+    const takePhoto = async () => {
+        const result = await ImagePicker.launchCameraAsync({
+            allowsEditing: true,
+            aspect: [4, 3],
+            quality: 0.8,
+        });
+        if (!result.canceled) {
+            setPhoto(result.assets[0]);
+            setPhotoPreview(result.assets[0].uri);
+        }
+    };
 
     const handleSubmit = async () => {
         if (!title || !description || !category || !city) {
-            window.alert('Please fill in all required fields (*)');
-            return;
-        }
-
-        const token = localStorage.getItem('auth_token');
-        if (!token) {
-            window.alert('You must be logged in to post a job.');
-            router.replace('/login');
+            setStatusType('error');
+            setStatusMsg('Please fill in all required fields');
             return;
         }
 
         setLoading(true);
+        setStatusType('info');
+        setStatusMsg('Publishing your job...');
 
         try {
-            const response = await fetch('http://127.0.0.1:8000/api/v1/jobs', {
+            const formData = new FormData();
+            formData.append('title', title);
+            formData.append('description', description);
+            formData.append('category_id', category);
+            formData.append('city', city);
+            if (budgetMin) formData.append('budget_min', parseInt(budgetMin));
+            if (budgetMax) formData.append('budget_max', parseInt(budgetMax));
+
+            if (photo) {
+                const filename = photo.uri.split('/').pop();
+                const match = /\.(\w+)$/.exec(filename);
+                const type = match ? `image/${match[1]}` : 'image/jpeg';
+                formData.append('photo', { uri: photo.uri, name: filename, type });
+            }
+
+            const token = await Storage.getItem('auth_token');
+            const response = await fetch(`${API_BASE}/jobs`, {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`,
                     'Accept': 'application/json',
-                    'Authorization': 'Bearer ' + token,
                 },
-                body: JSON.stringify({
-                    title: title,
-                    description: description,
-                    category_id: category,
-                    budget_min: budgetMin ? parseInt(budgetMin) : null,
-                    budget_max: budgetMax ? parseInt(budgetMax) : null,
-                    city: city,
-                }),
+                body: formData,
             });
 
             const data = await response.json();
             setLoading(false);
 
             if (data.success) {
-                window.alert('✅ Job published successfully!\n\nYour ad is now visible to handymen.');
-                const myJobs = JSON.parse(localStorage.getItem('my_jobs') || '[]');
-                myJobs.unshift(data.data);
-                localStorage.setItem('my_jobs', JSON.stringify(myJobs));
-                router.replace('/dashboard');
+                setStatusType('success');
+                setStatusMsg('Job published successfully! You will receive offers for this job.');
+                setTitle('');
+                setDescription('');
+                setCategory('');
+                setBudgetMin('');
+                setBudgetMax('');
+                setCity('');
+                setPhoto(null);
+                setPhotoPreview(null);
+                setTimeout(() => router.replace('/dashboard'), 2500);
             } else {
                 const msg = data.errors ? Object.values(data.errors).flat().join('\n') : (data.message || 'Error');
-                window.alert('Error: ' + msg);
+                setStatusType('error');
+                setStatusMsg(msg);
             }
         } catch (error) {
             setLoading(false);
-            window.alert('Server connection error.');
+            setStatusType('error');
+            setStatusMsg('Server connection error.');
         }
     };
 
@@ -82,7 +131,6 @@ export default function PostJob() {
         <View style={s.container}>
 
              {/* ========== SIDEBAR ========== */}
-            
             <View style={s.sidebar}>
                 <View style={s.sidebarLogo}>
                     <View style={s.logoIcon}><Text style={s.logoIconText}>BL</Text></View>
@@ -97,8 +145,11 @@ export default function PostJob() {
                 <TouchableOpacity style={[s.navItem, s.navActive]}>
                     <Text style={s.navIcon}>📝</Text><Text style={[s.navLabel, s.navLabelActive]}>Post a Job</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={s.navItem}>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/chats')}>
                     <Text style={s.navIcon}>💬</Text><Text style={s.navLabel}>Messages</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.navItem} onPress={() => router.push('/notifications')}>
+                    <Text style={s.navIcon}>🔔</Text><Text style={s.navLabel}>Notifications</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={s.navItem} onPress={() => router.push('/profile')}>
                     <Text style={s.navIcon}>👤</Text><Text style={s.navLabel}>Profile</Text>
@@ -135,8 +186,45 @@ export default function PostJob() {
                         </ScrollView>
 
                         <Text style={s.label}>Description *</Text>
-                        <TextInput style={[s.input, s.textArea]} placeholder="Describe the work in detail — materials needed, dimensions, urgency, access conditions..." placeholderTextColor="#9CA3AF" value={description} onChangeText={setDescription} multiline numberOfLines={5} textAlignVertical="top" />
+                        <TextInput style={[s.input, s.textArea]} placeholder="Describe the work in detail — materials needed, dimensions, urgency..." placeholderTextColor="#9CA3AF" value={description} onChangeText={setDescription} multiline numberOfLines={5} textAlignVertical="top" maxLength={500} />
                         <Text style={s.charCount}>{description.length}/500</Text>
+
+                        {/* Photo Upload */}
+                        <Text style={s.label}>Photo (optional)</Text>
+                        <TouchableOpacity style={s.uploadBox} onPress={pickImage}>
+                            {photoPreview ? (
+                                <Image source={{ uri: photoPreview }} style={s.uploadPreview} />
+                            ) : (
+                                <View style={s.uploadPlaceholder}>
+                                    <Text style={s.uploadIcon}>📷</Text>
+                                    <Text style={s.uploadText}>Tap to upload a photo</Text>
+                                    <Text style={s.uploadHint}>JPG, PNG — Max 5 MB</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+                        {photoPreview && (
+                            <View style={s.photoBtns}>
+                                <TouchableOpacity style={s.photoBtn} onPress={pickImage}>
+                                    <Text style={s.photoBtnText}>🖼️ Gallery</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
+                                    <Text style={s.photoBtnText}>📸 Camera</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={[s.photoBtn, { borderColor: '#FECACA', backgroundColor: '#FEF2F2' }]} onPress={() => { setPhoto(null); setPhotoPreview(null); }}>
+                                    <Text style={[s.photoBtnText, { color: '#EF4444' }]}>✕ Remove</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+                        {!photoPreview && (
+                            <View style={s.photoBtns}>
+                                <TouchableOpacity style={s.photoBtn} onPress={pickImage}>
+                                    <Text style={s.photoBtnText}>🖼️ Gallery</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={s.photoBtn} onPress={takePhoto}>
+                                    <Text style={s.photoBtnText}>📸 Camera</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
 
                         <View style={s.divider} />
                         <Text style={s.sectionLabel}>BUDGET & LOCATION</Text>
@@ -167,9 +255,17 @@ export default function PostJob() {
                         <View style={s.infoBox}>
                             <Text style={s.infoTitle}>💡 Good to Know</Text>
                             <Text style={s.infoText}>• Your ad will be visible to handymen in your city.</Text>
+                            <Text style={s.infoText}>• Adding a photo helps handymen understand the job better.</Text>
                             <Text style={s.infoText}>• You will receive offers in the application.</Text>
-                            <Text style={s.infoText}>• Check ratings and reviews before accepting an offer.</Text>
                         </View>
+
+                        {statusType && (
+                            <View style={[s.statusBanner, statusType === 'error' && s.statusBannerError, statusType === 'info' && s.statusBannerInfo, statusType === 'success' && s.statusBannerSuccess]}>
+                                <Text style={[s.statusText, statusType === 'error' && s.statusTextError, statusType === 'info' && s.statusTextInfo, statusType === 'success' && s.statusTextSuccess]}>
+                                    {statusType === 'info' ? 'ℹ️ ' : statusType === 'success' ? '✅ ' : '❌ '}{statusMsg}
+                                </Text>
+                            </View>
+                        )}
 
                         <TouchableOpacity
                             style={[s.submitBtn, (!title || !description || !category || !city) && s.submitBtnDisabled]}
@@ -238,4 +334,27 @@ const s = StyleSheet.create({
     submitBtn: { backgroundColor: '#D9A441', borderRadius: 8, paddingVertical: 14, alignItems: 'center', marginTop: 22 },
     submitBtnDisabled: { backgroundColor: '#F5D98E' },
     submitBtnText: { color: '#0B3D3E', fontWeight: '700', fontSize: 15 },
+
+    // Photo upload
+    uploadBox: { borderWidth: 2, borderColor: '#E5E7EB', borderStyle: 'dashed', borderRadius: 12, overflow: 'hidden', marginTop: 6 },
+    uploadPreview: { width: '100%', height: 200, resizeMode: 'cover' },
+    uploadPlaceholder: { alignItems: 'center', paddingVertical: 30, backgroundColor: '#F9FAFB' },
+    uploadIcon: { fontSize: 32, marginBottom: 8 },
+    uploadText: { fontSize: 14, fontWeight: '500', color: '#374151' },
+    uploadHint: { fontSize: 11, color: '#9CA3AF', marginTop: 4 },
+    photoBtns: { flexDirection: 'row', gap: 8, marginTop: 8 },
+    photoBtn: { backgroundColor: '#FFFBEB', paddingHorizontal: 14, paddingVertical: 7, borderRadius: 6, borderWidth: 1, borderColor: '#FDE68A' },
+    photoBtnText: { color: '#B45309', fontWeight: '500', fontSize: 12 },
+    removePhotoBtn: { alignSelf: 'flex-start', marginTop: 8, paddingVertical: 4, paddingHorizontal: 10, borderRadius: 6, backgroundColor: '#FEF2F2' },
+    removePhotoText: { color: '#EF4444', fontSize: 12, fontWeight: '500' },
+
+    // Status banners
+    statusBanner: { borderRadius: 8, padding: 12, marginBottom: 14, borderWidth: 1 },
+    statusBannerInfo: { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' },
+    statusBannerSuccess: { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' },
+    statusBannerError: { backgroundColor: '#FEF2F2', borderColor: '#FECACA' },
+    statusText: { fontSize: 13, lineHeight: 20 },
+    statusTextInfo: { color: '#1E40AF' },
+    statusTextSuccess: { color: '#166534' },
+    statusTextError: { color: '#991B1B' },
 });
